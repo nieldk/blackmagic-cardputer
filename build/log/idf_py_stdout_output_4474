@@ -1,0 +1,17 @@
+[1/9] Performing build step for 'bootloader'
+[1/1] cd /home/nieldk/build/blackmagic-esp32s3/build/bootloader/esp-idf/esptool_py && /home/nieldk/.espressif/python_env/idf5.1_py3.14_env/bin/python /home/nieldk/esp/esp-idf-5.1/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 /home/nieldk/build/blackmagic-esp32s3/build/bootloader/bootloader.bin
+Bootloader binary size 0x51c0 bytes. 0x2e40 bytes (36%) free.
+[2/9] No install step for 'bootloader'
+[3/9] Completed 'bootloader'
+[4/9] Building C object esp-idf/ui/CMakeFiles/__idf_ui.dir/ui.c.obj
+[5/9] Linking C static library esp-idf/ui/libui.a
+[6/9] Generating ld/sections.ld
+[7/9] Linking CXX executable espbmp.elf
+[8/9] Generating binary image from built executable
+esptool.py v4.11.0
+Creating esp32s3 image...
+Merged 2 ELF sections
+Successfully created esp32s3 image.
+Generated /home/nieldk/build/blackmagic-esp32s3/build/espbmp.bin
+[9/9] cd /home/nieldk/build/blackmagic-esp32s3/build/esp-idf/esptool_py && /home/nieldk/.espressif/python_env/idf5.1_py3.14_env/bin/python /home/nieldk/esp/esp-idf-5.1/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /home/nieldk/build/blackmagic-esp32s3/build/partition_table/partition-table.bin /home/nieldk/build/blackmagic-esp32s3/build/espbmp.bin
+espbmp.bin binary size 0x6b4c0 bytes. Smallest app partition is 0x100000 bytes. 0x94b40 bytes (58%) free.
