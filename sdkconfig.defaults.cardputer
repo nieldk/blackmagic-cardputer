@@ -1,7 +1,7 @@
 # Board selection
 CONFIG_BOARD_CARDPUTER=y
 
-# ST7789 panel pinout, verified against m5stack/M5GFX autodetect code
+# ST7789 panel pinout, verified against M5Stack Cardputer schematic
 CONFIG_MIPI_DISPLAY_PIN_MOSI=35
 CONFIG_MIPI_DISPLAY_PIN_MISO=-1
 CONFIG_MIPI_DISPLAY_PIN_CLK=36
@@ -11,8 +11,15 @@ CONFIG_MIPI_DISPLAY_PIN_RST=33
 CONFIG_MIPI_DISPLAY_PIN_BL=38
 CONFIG_MIPI_DISPLAY_PIN_BL_ACTIVE=1
 
+# Geometry - WIDTH=240/HEIGHT=135 with SWAP_XY set: MV transposes the
+# controller's native column/row axes, so WIDTH must match the native
+# row count (240) to fill the full physical landscape width.
+# OFFSET_X/Y empirically determined on real hardware.
+# Do NOT enable HAGL_HAL_USE_DOUBLE_BUFFERING - Cardputer has no PSRAM,
+# the ~63KB second framebuffer allocation fails silently and causes a
+# ~1s reboot loop with no debug output available.
 CONFIG_MIPI_DISPLAY_WIDTH=240
-CONFIG_MIPI_DISPLAY_HEIGHT=240
+CONFIG_MIPI_DISPLAY_HEIGHT=135
 CONFIG_MIPI_DISPLAY_OFFSET_X=40
 CONFIG_MIPI_DISPLAY_OFFSET_Y=52
 CONFIG_MIPI_DISPLAY_INVERT=y
@@ -24,11 +31,11 @@ CONFIG_MIPI_DCS_PIXEL_FORMAT_16BIT_SELECTED=y
 CONFIG_MIPI_DISPLAY_SPI_CLOCK_SPEED_HZ=40000000
 CONFIG_MIPI_DISPLAY_SPI_MODE=0
 
-# Rotation to match Cardputer's landscape orientation (M5GFX sets rotation=1)
+# Rotation: MV+MX (SWAP_XY+MIRROR_X) is correct for landscape on this panel.
+# MV alone, MV+MY, and MV+MX+MY were all tested and produce wrong orientation.
+# FLIP_X/FLIP_Y Kconfig options exist but are no-ops on ST7789 (reserved bits).
 CONFIG_MIPI_DCS_ADDRESS_MODE_SWAP_XY_SELECTED=y
 CONFIG_MIPI_DCS_ADDRESS_MODE_MIRROR_X_SELECTED=y
 # CONFIG_MIPI_DCS_ADDRESS_MODE_MIRROR_Y_SELECTED is not set
 # CONFIG_MIPI_DCS_ADDRESS_MODE_FLIP_X_SELECTED is not set
 # CONFIG_MIPI_DCS_ADDRESS_MODE_FLIP_Y_SELECTED is not set
-
-# CONFIG_HAGL_HAL_USE_DOUBLE_BUFFERING=y
