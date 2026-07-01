@@ -43,6 +43,10 @@ void usb_glue_gdb_send(const uint8_t* buf, size_t len, bool flush);
 
 void usb_glue_gdb_set_receive_callback(void (*callback)(void* context), void* context);
 
+void usb_glue_gdb_set_line_state_callback(
+    void (*callback)(bool dtr, bool rts, void* context),
+    void* context);
+
 size_t usb_glue_gdb_receive(uint8_t* buf, size_t len);
 
 /***** USB-DAP *****/

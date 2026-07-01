@@ -10,8 +10,8 @@ set(SOURCES
 
 set (INCLUDES
     "."
-    "graphics"
 )
 
 idf_component_register(SRCS ${SOURCES}
-                    INCLUDE_DIRS ${INCLUDES})
+                    INCLUDE_DIRS ${INCLUDES}
+                    PRIV_REQUIRES blackmagic tinyusb simple-uart soft-uart hagl hagl_hal ui driver)

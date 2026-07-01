@@ -3,7 +3,7 @@
 	url = https://github.com/blackmagic-debug/blackmagic
 [submodule "components/tinyusb/tinyusb"]
 	path = components/tinyusb/tinyusb
-	url = https://github.com/hathach/tinyusb
+	url = https://github.com/espressif/tinyusb
 [submodule "components/hagl"]
 	path = components/hagl
 	url = https://github.com/tuupola/hagl

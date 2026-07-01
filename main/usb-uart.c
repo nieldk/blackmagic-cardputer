@@ -18,8 +18,21 @@
 #define USB_UART_BAUD_RATE (230400)
 #define USB_UART_RX_BUF_SIZE (1024)
 
-#define UART_RX_STREAM_BUFFER_SIZE_BYTES 1024 * 1024
+// 1MB made sense on the T-Display S3 (8MB PSRAM, EXT_RAM_ATTR places it
+// there). Cardputer's ESP32-S3FN8 has no PSRAM at all, so EXT_RAM_ATTR
+// silently falls back to internal DRAM - where a 1MB buffer alone
+// exceeds the chip's entire usable DRAM region. This buffer only needs
+// to bridge a UART RX ISR to a consuming task at 230400 baud
+// (~23KB/sec), so a few KB is genuinely plenty regardless of board;
+// only use EXT_RAM_ATTR (and the larger size) when PSRAM is actually
+// configured and available.
+#if defined(CONFIG_SPIRAM)
+#define UART_RX_STREAM_BUFFER_SIZE_BYTES (1024 * 1024)
 static uint8_t uart_rx_stream_storage[UART_RX_STREAM_BUFFER_SIZE_BYTES + 1] EXT_RAM_ATTR;
+#else
+#define UART_RX_STREAM_BUFFER_SIZE_BYTES (8 * 1024)
+static uint8_t uart_rx_stream_storage[UART_RX_STREAM_BUFFER_SIZE_BYTES + 1];
+#endif
 static StaticStreamBuffer_t uart_rx_stream_buffer_struct;
 static StreamBufferHandle_t uart_rx_stream = NULL;
 

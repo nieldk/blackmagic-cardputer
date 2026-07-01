@@ -52,6 +52,8 @@ typedef struct {
     void* cdc_line_coding_context;
     void (*cdc_line_state)(bool dtr, bool rts, void* context);
     void* cdc_line_state_context;
+    void (*gdb_line_state)(bool dtr, bool rts, void* context);
+    void* gdb_line_state_context;
     void (*gdb_receive)(void* context);
     void* gdb_receive_context;
     void (*dap_receive)(void* context);
@@ -69,6 +71,8 @@ static USBGlueCallbacks callbacks = {
     .cdc_line_coding_context = NULL,
     .cdc_line_state = NULL,
     .cdc_line_state_context = NULL,
+    .gdb_line_state = NULL,
+    .gdb_line_state_context = NULL,
     .gdb_receive = NULL,
     .gdb_receive_context = NULL,
     .dap_receive = NULL,
@@ -104,6 +108,12 @@ static void callback_cdc_line_coding(cdc_line_coding_t const* p_line_coding) {
 static void callback_cdc_line_state(bool dtr, bool rts) {
     if(callbacks.cdc_line_state) {
         callbacks.cdc_line_state(dtr, rts, callbacks.cdc_line_state_context);
+    }
+}
+
+static void callback_gdb_line_state(bool dtr, bool rts) {
+    if(callbacks.gdb_line_state) {
+        callbacks.gdb_line_state(dtr, rts, callbacks.gdb_line_state_context);
     }
 }
 
@@ -217,6 +227,8 @@ void tud_cdc_line_state_cb(uint8_t interface, bool dtr, bool rts) {
     if(usb_device_type == USBDeviceTypeDualCDC) {
         if(interface == BlackmagicCDCTypeUART) {
             callback_cdc_line_state(dtr, rts);
+        } else if(interface == BlackmagicCDCTypeGDB) {
+            callback_gdb_line_state(dtr, rts);
         }
     } else if(usb_device_type == USBDeviceTypeDapLink) {
         if(interface == DapCDCTypeUART) {
@@ -398,6 +410,13 @@ void usb_glue_cdc_set_line_state_callback(
 void usb_glue_gdb_set_receive_callback(void (*callback)(void* context), void* context) {
     callbacks.gdb_receive = callback;
     callbacks.gdb_receive_context = context;
+}
+
+void usb_glue_gdb_set_line_state_callback(
+    void (*callback)(bool dtr, bool rts, void* context),
+    void* context) {
+    callbacks.gdb_line_state = callback;
+    callbacks.gdb_line_state_context = context;
 }
 
 void usb_glue_dap_set_receive_callback(void (*callback)(void* context), void* context) {

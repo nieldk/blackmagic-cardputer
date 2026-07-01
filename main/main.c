@@ -18,6 +18,10 @@
 
 #include "usb-uart.h"
 
+#if defined(CONFIG_BOARD_CARDPUTER)
+#include "ui.h"
+#endif
+
 static const char* TAG = "main";
 
 #if defined(CONFIG_BOARD_TDISPLAY_S3_AMOLED)
@@ -89,6 +93,11 @@ void app_main(void)
     pins_init();
 
     xTaskCreate(&gdb_application_thread, "gdb_thread", 4096, NULL, 5, NULL);
+
+#if defined(CONFIG_BOARD_CARDPUTER)
+    ui_start();
+#endif
+
     led_set_green(0);
 
     ESP_LOGI(TAG, "end");

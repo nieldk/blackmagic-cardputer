@@ -46,6 +46,22 @@ extern bool debug_bmp;
 #define TRACESWO_PIN 18
 #endif
 
+#if defined(CONFIG_BOARD_CARDPUTER)
+// SWD only, over the Grove port (G1/G2). No spare Grove pin for NRST or
+// JTAG (TDI/TDO) - use connect-under-reset (`monitor connect_rst enable`)
+// or wire NRST separately from the internal header if you need it.
+#define NRST_PIN (-1)
+#define TMS_PIN (1)   // Grove G1 = GPIO1
+#define TCK_PIN (2)   // Grove G2 = GPIO2
+#define TDI_PIN (-1)
+#define TDO_PIN (-1)
+
+// Enables the ui_capture_active redirect in gdb_packet.c (see
+// patches/gdb_packet.c.patch) so monitor-command output goes to the
+// on-screen scrollback when the keyboard REPL invokes command_process().
+#define PLATFORM_HAS_LOCAL_UI
+#endif
+
 // ON ESP32 we dont have the PORTS, this is dummy value until code is corrected
 #define SWCLK_PORT (0)
 #define SWCLK_PIN TCK_PIN

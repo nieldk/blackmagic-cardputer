@@ -18,11 +18,27 @@ menu "Blackmagic-ESP32S3 Hardware"
             select CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
             select RM67162_GRAPHICS
 
+        config BOARD_CARDPUTER
+            bool
+            prompt "M5Stack Cardputer"
+            select ST7789_GRAPHICS
+            select CARDPUTER_KEYBOARD
+
     endchoice
 
     config RM67162_GRAPHICS
         bool
         prompt "RM67162 Graphics"
         depends on BOARD_TDISPLAY_S3_AMOLED
+
+    config ST7789_GRAPHICS
+        bool
+        prompt "ST7789 Graphics (Cardputer)"
+        depends on BOARD_CARDPUTER
+
+    config CARDPUTER_KEYBOARD
+        bool
+        prompt "Cardputer IO-matrix keyboard"
+        depends on BOARD_CARDPUTER
 
 endmenu

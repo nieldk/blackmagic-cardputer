@@ -4,6 +4,17 @@ idf_component_get_property(FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH
 
 idf_build_get_property(idf_target IDF_TARGET)
 
+# portYIELD_FROM_ISR() on IDF 5.1.4's xtensa port calls
+# traceISR_EXIT_TO_SCHEDULER() unconditionally, expecting it to default
+# to a no-op when trace facility tracing isn't enabled - that default
+# isn't reaching these directly-into-the-executable-compiled sources,
+# causing an undefined reference at link time. Define it as the no-op
+# it's documented to default to, via the same INTERFACE mechanism the
+# CFG_TUSB_MCU defines below already use.
+target_compile_options(${COMPONENT_TARGET} INTERFACE
+    "-DtraceISR_EXIT_TO_SCHEDULER()="
+)
+
 if(${idf_target} STREQUAL "esp32s2")
     target_compile_options(${COMPONENT_TARGET} INTERFACE
         "-DCFG_TUSB_MCU=OPT_MCU_ESP32S2"
@@ -53,13 +64,10 @@ target_sources(${COMPONENT_TARGET} INTERFACE
     "${COMPONENT_DIR}/tinyusb/src/portable/espressif/esp32sx/dcd_esp32sx.c"
     "${COMPONENT_DIR}/tinyusb/src/host/hub.c"
     "${COMPONENT_DIR}/tinyusb/src/host/usbh.c"
-    # "${COMPONENT_DIR}/tinyusb/src/host/usbh_control.c"
 
     "${COMPONENT_DIR}/drivers/usb-glue.c"
 
-    # "${COMPONENT_DIR}/drivers/dual-cdc/dual-cdc-driver.c"
     "${COMPONENT_DIR}/drivers/dual-cdc/dual-cdc-descriptors.c"
 
-    # "${COMPONENT_DIR}/drivers/dap-link/vendor_device.c"
     "${COMPONENT_DIR}/drivers/dap-link/dap-link-descriptors.c"
 )

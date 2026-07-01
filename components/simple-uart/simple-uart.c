@@ -4,6 +4,7 @@
 // #include <driver/periph_ctrl.h>
 #include <hal/uart_ll.h>
 #include <hal/uart_hal.h>
+#include <soc/uart_periph.h>
 
 #include <hal/gpio_hal.h>
 #include <esp_rom_gpio.h>
