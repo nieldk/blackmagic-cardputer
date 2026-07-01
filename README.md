@@ -4,6 +4,8 @@ A port of [litui/blackmagic-esp32s3](https://github.com/litui/blackmagic-esp32s3
 [M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer), adding an on-device
 keyboard REPL and scrollable display console alongside the standard BMP USB functionality.
 
+<img src="screen.jpg" alt="Cardputer Boot Screen" width="250">
+
 ## Hardware
 
 - **MCU**: ESP32-S3FN8 (no PSRAM)
