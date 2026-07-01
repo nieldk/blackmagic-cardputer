@@ -141,7 +141,7 @@ static void render(const char* prompt_line) {
             wbuf[j] = (wchar_t)scrollback[row][j];
         wbuf[j] = 0;
         if (j > 0)
-            hagl_put_text(disp, wbuf, 0, i * 10, 0x07E0 /* green */, font6x9);
+            hagl_put_text(disp, wbuf, 0, i * 10, 0x7E00 /* green */, font6x9);
     }
     xSemaphoreGive(scrollback_mutex);
 
@@ -307,11 +307,32 @@ static void on_gdb_line_state(bool dtr, bool rts, void* ctx) {
 
 void ui_start(void) {
     scrollback_mutex = xSemaphoreCreateMutex();
-    for (int i = 0; i < UI_HISTORY_ROWS; i++)
+    
+    // 1. Clear history buffer
+    for (int i = 0; i < UI_HISTORY_ROWS; i++) {
         scrollback[i][0] = '\0';
+    }
 
+    xSemaphoreTake(scrollback_mutex, portMAX_DELAY);
+
+    strncpy(scrollback[0], " ____   __  __  ____  ", UI_COLS);
+    strncpy(scrollback[1], " || ))  ||\\/||  || )) ", UI_COLS);
+    strncpy(scrollback[2], " ||  )) ||  ||  ||    ", UI_COLS);
+    strncpy(scrollback[3], " ||__// ||  ||  ||    ", UI_COLS);
+    strncpy(scrollback[4], " -------------------- ", UI_COLS);
+    strncpy(scrollback[5], "   Cardputer v1.0", UI_COLS);
+    strncpy(scrollback[6], "   (C) 2026 Niel Nielsen", UI_COLS);
+    strncpy(scrollback[7], "   SWD Probe Ready", UI_COLS);
+
+    scrollback_head = 8;
+    scrollback_count = 8;
+
+    xSemaphoreGive(scrollback_mutex);
+
+    // 3. Initialize the rest of the systems
     usb_glue_gdb_set_line_state_callback(on_gdb_line_state, NULL);
 
     xTaskCreate(&ui_task, "ui_task", 8192, NULL, 4, NULL);
     ESP_LOGI(TAG, "started");
 }
+
