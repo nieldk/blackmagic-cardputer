@@ -18,6 +18,9 @@
 
 #include "usb-uart.h"
 
+#include "target_lock.h"
+#include "sdcard.h"
+
 #if defined(CONFIG_BOARD_CARDPUTER)
 #include "ui.h"
 #endif

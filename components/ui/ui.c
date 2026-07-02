@@ -22,6 +22,8 @@
 #include "usb-glue.h" // usb_glue_gdb_set_line_state_callback()
 #include "tusb.h"     // tud_cdc_n_write / tud_cdc_n_connected
 
+#include "ui_debug.h"
+
 static const char* TAG = "ui";
 
 // ui_capture_active is defined in gdb_packet.c (see patches/gdb_packet.c.patch),
