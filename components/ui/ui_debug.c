@@ -252,16 +252,33 @@ static void v_ctl(const char *verb)
 
 // Printed ahead of the native monitor help. Lines kept under 40 cols so they
 // do not wrap on the ST7789 console.
+// Curated help, every line kept under 40 columns so nothing wraps on the
+// ST7789 console. `help all` falls through to the core's full cmd_help list.
 static void v_help(void)
 {
-	out("-- standalone --");
-	out("attach [N]  attach target (def 1)");
+	out("== standalone ==");
+	out("attach [N]  attach tgt (def 1)");
 	out("detach      detach target");
-	out("flash <path> [hex]  elf/bin from SD");
-	out("regs        dump core registers");
-	out("mem <hex> <len>  hex-dump memory");
-	out("reset halt run step poll  control");
-	out("-- monitor --");
+	out("flash <f> [hex]  elf/bin, SD");
+	out("regs        dump registers");
+	out("mem <a> <n>  hexdump memory");
+	out("halt run step poll  run ctrl");
+	out("reset       reset core/nRST");
+	out("== monitor ==");
+	out("swd_scan [id]  scan SWD");
+	out("jtag_scan   scan JTAG");
+	out("auto_scan   scan all chains");
+	out("targets     list targets");
+	out("frequency [hz]  set clock");
+	out("connect_rst e|d  under-rst");
+	out("tdi_low_reset  nRST,TDI low");
+	out("halt_timeout [ms]  timeout");
+	out("rtt ...     RTT control");
+	out("heapinfo ...  semihost");
+	out("debug_bmp e|d  dbg vcom2");
+	out("version     fw version");
+	out("morse       morse error");
+	out("help all = full native list");
 }
 
 // --- dispatch --------------------------------------------------------------
@@ -282,8 +299,10 @@ bool ui_debug_dispatch(const char *line)
 
 	const char *v = argv[0];
 	if (!strcmp(v, "help")) {
+		if (argc > 1 && !strcmp(argv[1], "all"))
+			return false; // let command_process() print the full native list
 		v_help();
-		return false; // fall through so command_process() lists monitor cmds
+		return true;
 	}
 	if (!strcmp(v, "attach"))
 		v_attach(argc, argv);
@@ -295,8 +314,11 @@ bool ui_debug_dispatch(const char *line)
 		v_regs();
 	else if (!strcmp(v, "mem"))
 		v_mem(argc, argv);
-	else if (!strcmp(v, "reset") || !strcmp(v, "halt") || !strcmp(v, "run") || !strcmp(v, "step") ||
-	         !strcmp(v, "poll"))
+	else if (!strcmp(v, "reset")) {
+		if (!cur_target)
+			return false; // no target: let monitor `reset` pulse nRST
+		v_ctl("reset");
+	} else if (!strcmp(v, "halt") || !strcmp(v, "run") || !strcmp(v, "step") || !strcmp(v, "poll"))
 		v_ctl(v);
 	else
 		return false; // not ours, let command_process() handle it
