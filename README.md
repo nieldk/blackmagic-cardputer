@@ -33,7 +33,7 @@ monitor command in the REPL, if the target requires connect-under-reset.
 - **Scrollable history**: 50-line scrollback buffer, navigate with `Fn+;` (back) and
   `Fn+.` (forward)
 - **USB output mirror**: All command output simultaneously sent to COM port 2 as raw
-  text — open in any terminal (flow control: None) to capture full output
+  text, open in any terminal (flow control: None) to capture full output
 
 ## Supported monitor commands
 
@@ -106,6 +106,62 @@ wrapping. Because that list is static, target-specific commands (which appear af
 attach) and any custom monitor commands are not in it, use `help all` to fall through to
 the full native listing instead.
 
+### Example output
+
+A full standalone session, keyed in on the Cardputer (the `>` lines are the echoed
+commands, everything else is on-screen output, also mirrored to COM port 2). Addresses and
+names below are from an STM32F1 target and will vary with your device.
+
+```
+> swd_scan
+Available Targets:
+No. Att Driver
+ 1      STM32F1 medium density Cortex-M3
+> attach 1
+attached 1: STM32F1 medium density / Cortex-M3
+> flash /sdcard/firmware.elf
+erase 0x08000000 +4128
+seg 1/2 0x08000000 +2048 ok
+seg 2/2 0x08001000 +512 ok
+verify ok
+flash ok: 2 seg, 2560 bytes, entry 0x08000101
+> reset
+reset
+> run
+running
+```
+
+Registers and a memory dump (the vector table at flash base):
+
+```
+> regs
+r00: 00000000
+r01: 00000000
+r02: 20000200
+...
+r13: 20004ff8
+r14: fffffff9
+r15: 080001c8
+> mem 08000000 16
+08000000: 00 50 00 20 c9 01 00 08
+08000008: d1 01 00 08 d3 01 00 08
+```
+
+A raw binary is programmed the same way but with no per-segment lines, and needs a load
+base since a `.bin` carries no addresses:
+
+```
+> flash /sdcard/blob.bin 08000000
+erase 0x08000000 +100
+verify ok
+flash ok: 1 seg, 100 bytes, entry 0x08000000
+```
+
+On error the flash stops at the failing stage and names it, for example
+`flash failed: erase failed`, `flash failed: write failed`, or
+`flash failed: verify mismatch`. Common non-flash messages are `attach first` (no target
+attached) and `open /sdcard/... failed` (bad path or card not mounted).
+
 ## microSD
 
 Firmware images are read from a FAT-formatted microSD, mounted at `/sdcard` at boot. Copy
@@ -123,11 +179,11 @@ simply unavailable, everything else (probe, REPL, host GDB) works unchanged.
 
 nRF51/nRF52, STM32F1/F4/G0/H5/H7/L0/L4/MP15, RP2040, SAMD/SAM3x/SAM4L/SAMx5x,
 LPC11xx/15xx/17xx/40xx/43xx/546xx/55xx, Kinetis, EFM32, iMX-RT, Renesas RA/RZ,
-RISC-V (RV32/RV64), nRF91, and more — see `blackmagic-fw/src/target/` for the full list.
+RISC-V (RV32/RV64), nRF91, and more, see `blackmagic-fw/src/target/` for the full list.
 
 ## Build requirements
 
-- **ESP-IDF v5.1.4** — not 5.3.x. TinyUSB's `dcd_esp32sx.c` (ESP32-S3 USB-OTG driver)
+- **ESP-IDF v5.1.4**, not 5.3.x. TinyUSB's `dcd_esp32sx.c` (ESP32-S3 USB-OTG driver)
   depends on SoC register names that were reorganized in later IDF releases.
 
 ```sh
@@ -169,7 +225,7 @@ idf.py app-flash
 
 ## Patching
 
-`gdb_packet.c` inside the `blackmagic-fw` submodule requires a manual edit — the
+`gdb_packet.c` inside the `blackmagic-fw` submodule requires a manual edit: the
 submodule points at an older fork where the include chain does not reach `platform.h`,
 so the `PLATFORM_HAS_LOCAL_UI` guard must be added explicitly.
 
@@ -203,18 +259,18 @@ modified beyond the `gdb_packet.c` patch above.
 
 In `components/ui/`:
 
-- `ui_debug.c` / `.h` — the standalone verbs (`attach`, `flash`, `regs`, `mem`, run
+- `ui_debug.c` / `.h`: the standalone verbs (`attach`, `flash`, `regs`, `mem`, run
   control), dispatched from the REPL before `command_process()`. Also holds the
   `target_controller_s` used for on-device attach and the flash sink bound to
   `target_flash_*`.
-- `bmp_standalone_load.c` / `.h` — ELF32/`.bin` program-header loader. It walks the image
+- `bmp_standalone_load.c` / `.h`: ELF32/`.bin` program-header loader. It walks the image
   from a `FILE*` and drives flash through a small callback sink, so it does not depend on
   the exact BMP flash signatures. Streams in 2 KB chunks (no PSRAM).
-- `target_lock.c` / `.h` — a single mutex shared by the GDB task and the REPL.
+- `target_lock.c` / `.h`: a single mutex shared by the GDB task and the REPL.
 
 In `main/`:
 
-- `sdcard.c` / `.h` — microSD SPI mount at `/sdcard`.
+- `sdcard.c` / `.h`: microSD SPI mount at `/sdcard`.
 
 Wiring, for anyone rebasing the fork:
 
@@ -236,7 +292,7 @@ on-device flash would drive the same SWD DP mid-erase. The lock is taken after
 | G2 | GPIO2 | SWCLK |
 | GND | GND | GND |
 
-Power the target separately — the Grove port does not supply target power in this build.
+Power the target separately, the Grove port does not supply target power in this build.
 
 ## Connecting with GDB
 
@@ -261,8 +317,8 @@ host GDB session:
 - Type a command and press **Enter** to execute
 - **help** lists the standalone verbs and common monitor commands, **help all** shows the
   full native command list
-- **Fn + ;** — scroll back into history
-- **Fn + .** — scroll forward to live view
+- **Fn + ;**: scroll back into history
+- **Fn + .**: scroll forward to live view
 - Pressing **Enter** always snaps back to live view
 
 All command output also appears on **COM30** (the second USB-CDC port) as plain text.
@@ -270,10 +326,10 @@ Open it in any terminal with flow control set to **None**.
 
 ## Known limitations
 
-- No NRST pin — use `connect_rst enable` for targets that require it
-- Keyboard shift/Fn/Ctrl layers not decoded — only lowercase letters, digits, and
+- No NRST pin, use `connect_rst enable` for targets that require it
+- Keyboard shift/Fn/Ctrl layers not decoded, only lowercase letters, digits, and
   unshifted symbols available in the REPL
-- No double buffering (no PSRAM) — display redraws only on keypress to avoid flicker
+- No double buffering (no PSRAM), display redraws only on keypress to avoid flicker
 - SWD only (JTAG wiring not brought out to the Grove port in this configuration)
 - On-device `flash` erases the union span of an ELF's loadable segments in one pass, so a
   preserved config sector wedged between app regions would be wiped. Flash such layouts
