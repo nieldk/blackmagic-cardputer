@@ -230,7 +230,7 @@ submodule points at an older fork where the include chain does not reach `platfo
 so the `PLATFORM_HAS_LOCAL_UI` guard must be added explicitly.
 
 Edit `components/blackmagic/blackmagic-fw/src/gdb_packet.c` and add the following
-immediately before the `gdb_out()` function:
+immediately before the `gdb_out()` function (or copy the gdb_packet.c from root directory to components/blackmagic/blackmagic-fw/src/):
 
 ```c
 #include "platform.h"
