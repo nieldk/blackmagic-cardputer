@@ -245,16 +245,16 @@ static void ui_task(void* pv) {
                     char echo[CMD_BUF_SIZE + 8];
                     snprintf(echo, sizeof(echo), "> %s", cmd_buf);
                     scrollback_push_line(echo);
-
-                    ui_capture_active = true;
+                ui_capture_active = true;
+                if (!ui_debug_dispatch(cmd_buf)) {
                     int result = command_process(cur_target, cmd_buf);
-                    scrollback_flush_partial();
-                    ui_capture_active = false;
-
                     if (result < 0)
                         scrollback_push_line("(no such command)");
                     else if (result > 0)
                         scrollback_push_line("(command failed)");
+                }
+                scrollback_flush_partial();
+                ui_capture_active = false;
                 } else if (host_session_active) {
                     scrollback_push_line("(USB host attached)");
                 }

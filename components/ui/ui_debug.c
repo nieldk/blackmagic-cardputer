@@ -24,8 +24,16 @@ static void out(const char *fmt, ...)
 	char b[128];
 	va_list ap;
 	va_start(ap, fmt);
-	vsnprintf(b, sizeof b, fmt, ap);
+	int n = vsnprintf(b, sizeof b - 1, fmt, ap);
 	va_end(ap);
+	if (n < 0)
+		return;
+	// Terminate every message with a newline so ui_capture_write() flushes it
+	// as its own scrollback line instead of packing multiple out() calls into
+	// one 40-column row.
+	size_t len = ((size_t)n < sizeof b - 1) ? (size_t)n : sizeof b - 2;
+	b[len] = '\n';
+	b[len + 1] = '\0';
 	ui_capture_write(b);
 }
 
@@ -242,6 +250,20 @@ static void v_ctl(const char *verb)
 	target_unlock();
 }
 
+// Printed ahead of the native monitor help. Lines kept under 40 cols so they
+// do not wrap on the ST7789 console.
+static void v_help(void)
+{
+	out("-- standalone --");
+	out("attach [N]  attach target (def 1)");
+	out("detach      detach target");
+	out("flash <path> [hex]  elf/bin from SD");
+	out("regs        dump core registers");
+	out("mem <hex> <len>  hex-dump memory");
+	out("reset halt run step poll  control");
+	out("-- monitor --");
+}
+
 // --- dispatch --------------------------------------------------------------
 
 bool ui_debug_dispatch(const char *line)
@@ -259,6 +281,10 @@ bool ui_debug_dispatch(const char *line)
 		return false;
 
 	const char *v = argv[0];
+	if (!strcmp(v, "help")) {
+		v_help();
+		return false; // fall through so command_process() lists monitor cmds
+	}
 	if (!strcmp(v, "attach"))
 		v_attach(argc, argv);
 	else if (!strcmp(v, "detach"))
