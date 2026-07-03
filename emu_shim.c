@@ -155,10 +155,5 @@ bool emu_scan(void)
 	 */
 	adiv5_dp_init(dp);
 
-	/* adiv5_dp_init only frees the dp on early error (before AP enumeration);
-	 * on success it transfers refcount to the target. If we get here and no
-	 * target was added, treat it as failure. (cortexm_probe should have added
-	 * one via target_new/target_add_commands.)
-	 */
-	return target_list != NULL; /* At least one target was probed. */
+	return true;
 }

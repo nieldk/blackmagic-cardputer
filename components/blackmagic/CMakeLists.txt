@@ -73,6 +73,8 @@ set(BM_SOURCES
     ${BM_TARGET_DIR}/target_probe.c
     ${BM_TARGET_DIR}/target.c
     ${BM_TARGET_DIR}/zynq7000.c
+    ${BM_TARGET_DIR}/emu_target.c
+    ${BM_TARGET_DIR}/emu_shim.c
 )
 
 set(BM_OVERRIDES
