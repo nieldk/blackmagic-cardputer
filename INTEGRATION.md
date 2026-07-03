@@ -20,98 +20,58 @@ This directory contains an in-firmware emulated ADIv5 target (STM32F103 medium d
   - Validates core model (register layout, ROM constants, posted reads, FPEC W1C).
   - Run: `gcc -Wall -Wextra test_emu.c emu_target.c -o test_emu && ./test_emu`.
 
-## Integration Steps
+## Integration Steps (Cardputer ESP-IDF)
 
-### 1. Copy Files into BMP Source
+### 1. Files Already Registered
 
-```bash
-cp emu_target.c emu_target.h emu_shim.c emu_shim.h /path/to/blackmagic/src/target/
-```
-
-### 2. Add Command to command.c
-
-At the top of `command.c` (after existing includes), add:
-
-```c
-#include "emu_shim.h"
-```
-
-Add this function definition (after the other `cmd_*` functions):
-
-```c
-static bool cmd_emulate(target_s *t, int argc, const char **argv)
-{
-	(void)t;
-	(void)argc;
-	(void)argv;
-
-	if (!emu_scan()) {
-		gdb_out("Failed to set up emulated target\n");
-		return false;
-	}
-
-	/* List the newly probed targets. */
-	cmd_targets(NULL, 0, NULL);
-	return true;
-}
-```
-
-Add to the `cmd_list[]` table (before the `{NULL, NULL, NULL}` sentinel):
-
-```c
-{"emulate", cmd_emulate, "Set up emulated STM32F103 target (no hardware)"},
-```
-
-### 3. Update BMP Build System
-
-#### For CMake (src/CMakeLists.txt or similar)
-
-Ensure the new .c files are included in the target source list:
+Files are already in `components/blackmagic/CMakeLists.txt`:
 
 ```cmake
-add_executable(blackmagic
-  # ... existing sources ...
-  target/emu_target.c
-  target/emu_shim.c
-  # ... more sources ...
-)
+${BM_TARGET_DIR}/emu_target.c
+${BM_TARGET_DIR}/emu_shim.c
 ```
 
-#### For Make (if using Make)
+No CMakeLists.txt changes needed.
 
-Add to the STM32 object list or equivalent:
+### 2. Command Integration (Already Done)
 
-```make
-TARGETS := ... emu_target.o emu_shim.o ...
-```
+`command.c` already includes:
+- `#include "emu_shim.h"` at the top
+- `cmd_emulate()` function definition
+- `{"emulate", cmd_emulate, "..."}` in the `cmd_list[]`
 
-### 4. Rebuild and Test
+### 3. Build and Flash
 
 ```bash
-cd /path/to/blackmagic
-mkdir build && cd build
-cmake ..
-make -j4
+cd ~/blackmagic-cardputer
+idf.py build
+idf.py flash
 ```
 
-Flash to Cardputer, connect GDB, and run:
+### 4. Test
 
-```
+Connect via USB serial to the Cardputer, then run GDB against the running device:
+
+```bash
+arm-none-eabi-gdb
+(gdb) set architecture arm
+(gdb) target extended-remote /dev/ttyUSB0
 (gdb) monitor emulate
 (gdb) info target
 ```
 
-You should see the emulated STM32F103 medium density target (128 KiB flash, 20 KiB RAM).
+You should see the emulated STM32F103 medium density target (128 KiB flash, 20 KiB RAM) appear in the target list.
 
 ## Verification Checklist
 
-- [ ] `emu_target.c/.h` compile without warnings
-- [ ] `emu_shim.c/.h` compile without warnings
-- [ ] BMP firmware compiles and flashes
-- [ ] `monitor emulate` detects fake target
-- [ ] GDB can `x 0x08000000` (read flash)
-- [ ] GDB can halt/step/inspect registers
-- [ ] BMP halt loop converges (posts initial read, corrects on second iteration)
+- [ ] `idf.py build` completes without emu_* errors
+- [ ] `idf.py flash` writes firmware to Cardputer
+- [ ] Device appears on USB serial (`/dev/ttyUSB0` or equivalent)
+- [ ] GDB connects: `target extended-remote /dev/ttyUSB0`
+- [ ] `monitor emulate` reports target detected
+- [ ] `info target` shows STM32F103 medium density in target list
+- [ ] `x/4xw 0x08000000` reads emulated flash (returns 0x00000000... or pattern)
+- [ ] `info registers` shows CPU state after halt
 
 ## Known Limitations
 
