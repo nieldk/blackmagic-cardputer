@@ -66,11 +66,14 @@ void platform_init() {
 // }
 
 void inline platform_nrst_set_val(bool assert) {
-    gpio_set_level(NRST_PIN, (uint8_t)assert);
+    if (NRST_PIN >= 0)
+        gpio_set_level(NRST_PIN, (uint8_t)assert);
 }
 
 bool inline platform_nrst_get_val(void) {
-    return gpio_get_level(NRST_PIN);
+    if (NRST_PIN >= 0)
+        return gpio_get_level(NRST_PIN);
+    return false;
 }
 
 // target voltage
