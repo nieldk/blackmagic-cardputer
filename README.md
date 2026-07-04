@@ -197,9 +197,6 @@ RISC-V (RV32/RV64), nRF91, and more, see `blackmagic-fw/src/target/` for the ful
 git clone https://codeberg.org/nieldk/blackmagic-cardputer.git
 cd blackmagic-cardputer
 git submodule update --init --recursive
-
-# Apply the required manual patch to gdb_packet.c (see Patching section below)
-
 rm -f sdkconfig
 rm -rf build
 idf.py -D SDKCONFIG_DEFAULTS=sdkconfig.defaults.cardputer set-target esp32s3
@@ -221,35 +218,6 @@ Or flash just the app after an incremental build:
 
 ```sh
 idf.py app-flash
-```
-
-## Patching
-
-`gdb_packet.c` inside the `blackmagic-fw` submodule requires a manual edit: the
-submodule points at an older fork where the include chain does not reach `platform.h`,
-so the `PLATFORM_HAS_LOCAL_UI` guard must be added explicitly.
-
-Edit `components/blackmagic/blackmagic-fw/src/gdb_packet.c` and add the following
-immediately before the `gdb_out()` function (or copy the gdb_packet.c from root directory to components/blackmagic/blackmagic-fw/src/):
-
-```c
-#include "platform.h"
-
-#if defined(PLATFORM_HAS_LOCAL_UI)
-volatile bool ui_capture_active = false;
-void ui_capture_write(const char *str);
-#endif
-```
-
-And inside `gdb_out()`, at the very top of the function body:
-
-```c
-#if defined(PLATFORM_HAS_LOCAL_UI)
-    if (ui_capture_active) {
-        ui_capture_write(buf);
-        return;
-    }
-#endif
 ```
 
 ## Standalone frontend source layout
