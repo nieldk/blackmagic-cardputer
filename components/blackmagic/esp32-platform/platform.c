@@ -18,6 +18,18 @@ uint32_t swd_delay_cnt = 0;
 
 uint32_t target_clk_divider = 0;
 
+#if defined(CONFIG_BOARD_CARDPUTER)
+// Runtime SWD pin assignment - defaults to Grove G1/G2.
+// platform_swd_set_pins() can swap these if auto-detect finds them reversed.
+int g_swdio_pin = TMS_PIN;  // GPIO1
+int g_swclk_pin = TCK_PIN;  // GPIO2
+
+void platform_swd_set_pins(int swdio, int swclk) {
+    g_swdio_pin = swdio;
+    g_swclk_pin = swclk;
+}
+#endif
+
 void inline platform_swdio_mode_float(void) {
     // gpio_set_direction(SWDIO_PIN, GPIO_MODE_INPUT);
     // gpio_set_pull_mode(SWDIO_PIN, GPIO_FLOATING);
