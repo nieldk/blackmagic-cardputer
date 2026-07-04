@@ -4,7 +4,7 @@ A port of [litui/blackmagic-esp32s3](https://github.com/litui/blackmagic-esp32s3
 [M5Stack Cardputer](https://docs.m5stack.com/en/core/Cardputer), adding an on-device
 keyboard REPL and scrollable display console alongside the standard BMP USB functionality.
 
-On top of the monitor REPL, the Cardputer can now **attach, inspect, and flash a target
+On top of the monitor REPL, the Cardputer can **attach, inspect, and flash a target
 entirely on its own**, with no host GDB session. Point it at a firmware image on a microSD
 card and it becomes a self-contained debugger/flasher: scan, attach, program from `.elf`
 or `.bin`, dump registers and memory, and drive run control from the keyboard.
@@ -25,15 +25,19 @@ monitor command in the REPL, if the target requires connect-under-reset.
 ## Features
 
 - **Dual USB-CDC**: COM port 1 (GDB remote protocol), COM port 2 (UART/debug mirror)
-- **On-device REPL**: Type BMP monitor commands directly on the Cardputer keyboard,
-  output appears on screen
+- **On-device REPL**: Type BMP monitor commands directly on the Cardputer keyboard.
+  Full shift layer supported — hold `Aa` for uppercase and symbols including `_`, `!`,
+  `@`, `#`, `$`, `%`, etc.
 - **Standalone debugger/flasher**: Attach to a target, flash an `.elf`/`.bin` from the
   microSD, read registers and memory, and control run state, all without a host. See
   [Standalone debugging and flashing](#standalone-debugging-and-flashing-no-host)
+- **Auto pin detection**: `swd_scan` automatically tries both Grove pin orderings before
+  connecting — no need to care which wire landed on SWDIO vs SWCLK
 - **Scrollable history**: 50-line scrollback buffer, navigate with `Fn+;` (back) and
   `Fn+.` (forward)
 - **USB output mirror**: All command output simultaneously sent to COM port 2 as raw
   text, open in any terminal (flow control: None) to capture full output
+- **Boot animation**: Startup splash with progress bar and BMP logo
 
 ## Supported monitor commands
 
@@ -54,6 +58,7 @@ tdi_low_reset  Pulse nRST with TDI set low (wakes certain targets eg LPC82x)
 rtt            RTT control: [enable|disable|status|channel|ident|cblock|ram|poll]
 heapinfo       Set semihosting heapinfo: HEAP_BASE HEAP_LIMIT STACK_BASE STACK_LIMIT
 debug_bmp      Output BMP debug strings to second vcom: [enable|disable]
+swd_pinout     Brute-force SWD pinout scan across Grove pins: [pin1 pin2 ...]
 ```
 
 Target-specific commands (eg nRF52 recovery AP) become available once a target is
@@ -61,10 +66,8 @@ attached via `swd_scan`.
 
 ## Standalone debugging and flashing (no host)
 
-These verbs run on the Cardputer itself. They are not part of the BMP monitor table, they
-are handled by the REPL before it falls through to `command_process()`, so they coexist
-with every monitor command above. Unlike monitor commands, they set and use the device's
-own attached target, so the whole attach/flash/inspect cycle works with no GDB connected.
+These verbs run on the Cardputer itself. They are dispatched from the REPL before it
+falls through to `command_process()`, so they coexist with every monitor command above.
 
 ```
 attach [N]          Attach to target N from the last scan (default 1)
@@ -80,100 +83,32 @@ step                Single-step
 poll                Report halt reason
 ```
 
-`reset` is dual-purpose: with a target attached it resets the core, with none
-attached it falls through to the monitor `reset` and pulses the nRST line, so the
-standalone verb never hides the monitor one.
-
 Typical standalone flow, all from the keyboard:
 
 ```
 swd_scan                       # populate the target list
 connect_rst enable             # only if the target needs it (no NRST wired)
-attach 1                       # attach to target 1, sets the on-device target
+attach 1                       # attach to target 1
 flash /sdcard/firmware.elf     # erase, program, verify from SD
 reset
 run
 ```
 
-`flash` auto-detects ELF vs raw binary from the file header. ELF images are programmed
-per program-header at each segment's physical address (LMA), then read back and verified.
-Progress and the final `segments / bytes / entry` summary print to the scrollback and the
-COM port 2 mirror.
-
-Typing `help` on-device prints a curated, single-screen listing of both the standalone
-verbs and the common monitor commands, formatted to fit the 40-column display without
-wrapping. Because that list is static, target-specific commands (which appear after
-attach) and any custom monitor commands are not in it, use `help all` to fall through to
-the full native listing instead.
-
-### Example output
-
-A full standalone session, keyed in on the Cardputer (the `>` lines are the echoed
-commands, everything else is on-screen output, also mirrored to COM port 2). Addresses and
-names below are from an STM32F1 target and will vary with your device.
-
-```
-> swd_scan
-Available Targets:
-No. Att Driver
- 1      STM32F1 medium density Cortex-M3
-> attach 1
-attached 1: STM32F1 medium density / Cortex-M3
-> flash /sdcard/firmware.elf
-erase 0x08000000 +4128
-seg 1/2 0x08000000 +2048 ok
-seg 2/2 0x08001000 +512 ok
-verify ok
-flash ok: 2 seg, 2560 bytes, entry 0x08000101
-> reset
-reset
-> run
-running
-```
-
-Registers and a memory dump (the vector table at flash base):
-
-```
-> regs
-r00: 00000000
-r01: 00000000
-r02: 20000200
-...
-r13: 20004ff8
-r14: fffffff9
-r15: 080001c8
-> mem 08000000 16
-08000000: 00 50 00 20 c9 01 00 08
-08000008: d1 01 00 08 d3 01 00 08
-```
-
-A raw binary is programmed the same way but with no per-segment lines, and needs a load
-base since a `.bin` carries no addresses:
-
-```
-> flash /sdcard/blob.bin 08000000
-erase 0x08000000 +100
-verify ok
-flash ok: 1 seg, 100 bytes, entry 0x08000000
-```
-
-On error the flash stops at the failing stage and names it, for example
-`flash failed: erase failed`, `flash failed: write failed`, or
-`flash failed: verify mismatch`. Common non-flash messages are `attach first` (no target
-attached) and `open /sdcard/... failed` (bad path or card not mounted).
+`flash` auto-detects ELF vs raw binary from the file header. Progress and the final
+`segments / bytes / entry` summary print to the scrollback and the COM port 2 mirror.
 
 ## microSD
 
-Firmware images are read from a FAT-formatted microSD, mounted at `/sdcard` at boot. Copy
-your `.elf` or `.bin` to the card, insert it, and reference it by path in `flash`.
+Firmware images are read from a FAT-formatted microSD, mounted at `/sdcard` at boot.
+Copy your `.elf` or `.bin` to the card, insert it, and reference it by path in `flash`.
 
-The SD SPI pins in `main/sdcard.c` default to the documented Cardputer values
-(CLK 40, MISO 39, MOSI 14, CS 12). **Confirm these against your unit.** If the card shares
-the SPI host with the ST7789 display, set `SDCARD_SHARED_BUS 1` and point `SD_SPI_HOST` at
-the host the display already initialized, so the bus is not initialized twice.
+The SD SPI pins in `main/sdcard.c` default to the documented Cardputer values.
+**Confirm these against your unit.** If the card shares the SPI host with the ST7789
+display, set `SDCARD_SHARED_BUS 1` in `sdcard.c` and point `SD_SPI_HOST` at the host
+the display already initialized, so the bus is not initialized twice.
 
 If no card is present at boot the mount is skipped with a warning and flash-from-file is
-simply unavailable, everything else (probe, REPL, host GDB) works unchanged.
+simply unavailable — everything else (probe, REPL, host GDB) works unchanged.
 
 ## Supported targets (compiled in)
 
@@ -187,7 +122,6 @@ RISC-V (RV32/RV64), nRF91, and more, see `blackmagic-fw/src/target/` for the ful
   depends on SoC register names that were reorganized in later IDF releases.
 
 ```sh
-# Source the correct IDF version before building
 . ~/esp/esp-idf-5.1/export.sh
 ```
 
@@ -204,53 +138,17 @@ idf.py -D SDKCONFIG_DEFAULTS=sdkconfig.defaults.cardputer build
 ```
 
 Both commands must receive `-D SDKCONFIG_DEFAULTS=sdkconfig.defaults.cardputer`. Running
-`set-target` without it writes stock defaults that silently override the Cardputer
-config, since `SDKCONFIG_DEFAULTS` only seeds options not already present in an existing
-`sdkconfig`.
+`set-target` without it writes stock defaults that silently override the Cardputer config.
+
+The patched `gdb_packet.c` and `command.c` are included in the repo root and copied
+automatically into the `blackmagic-fw` submodule during the build. No manual patching
+required after `git submodule update --init --recursive`.
 
 ## Flash
 
 ```sh
 idf.py flash
 ```
-
-Or flash just the app after an incremental build:
-
-```sh
-idf.py app-flash
-```
-
-## Standalone frontend source layout
-
-The standalone debugger/flasher lives entirely in the app layer, the BMP core is not
-modified beyond the `gdb_packet.c` patch above.
-
-In `components/ui/`:
-
-- `ui_debug.c` / `.h`: the standalone verbs (`attach`, `flash`, `regs`, `mem`, run
-  control), dispatched from the REPL before `command_process()`. Also holds the
-  `target_controller_s` used for on-device attach and the flash sink bound to
-  `target_flash_*`.
-- `bmp_standalone_load.c` / `.h`: ELF32/`.bin` program-header loader. It walks the image
-  from a `FILE*` and drives flash through a small callback sink, so it does not depend on
-  the exact BMP flash signatures. Streams in 2 KB chunks (no PSRAM).
-- `target_lock.c` / `.h`: a single mutex shared by the GDB task and the REPL.
-
-In `main/`:
-
-- `sdcard.c` / `.h`: microSD SPI mount at `/sdcard`.
-
-Wiring, for anyone rebasing the fork:
-
-- `ui.c`, in the Enter branch, calls `ui_debug_dispatch()` first and only falls through to
-  `command_process()` when it returns false.
-- `main.c` calls `target_lock_init()` and `sdcard_mount()` in `app_main()`, and wraps
-  `gdb_main()` in the GDB task with `target_lock()` / `target_unlock()`.
-
-The lock matters: the GDB task runs at a higher FreeRTOS priority than the UI task and
-will preempt it. Without the lock, a host asserting DTR and sending a packet during an
-on-device flash would drive the same SWD DP mid-erase. The lock is taken after
-`gdb_getpacket()` returns, so waiting for host bytes never starves the keyboard.
 
 ## Wiring (SWD)
 
@@ -260,11 +158,11 @@ on-device flash would drive the same SWD DP mid-erase. The lock is taken after
 | G2 | GPIO2 | SWCLK |
 | GND | GND | GND |
 
-Power the target separately, the Grove port does not supply target power in this build.
+Power the target separately. `swd_scan` automatically tries both pin orderings, so the
+cable can be plugged in either way. Use `swd_pinout` to explicitly identify which pin is
+which.
 
 ## Connecting with GDB
-
-The host GDB path is unchanged and still available for source-level debugging:
 
 ```sh
 arm-none-eabi-gdb your_firmware.elf
@@ -279,33 +177,24 @@ arm-none-eabi-gdb your_firmware.elf
 
 ## On-device REPL
 
-The Cardputer keyboard lets you run monitor commands and the standalone verbs without a
-host GDB session:
-
 - Type a command and press **Enter** to execute
-- **help** lists the standalone verbs and common monitor commands, **help all** shows the
-  full native command list
+- Hold **Aa** (shift) for uppercase and symbols: `_`, `!@#$%^&*()`, `{}|`, etc.
 - **Fn + ;**: scroll back into history
 - **Fn + .**: scroll forward to live view
 - Pressing **Enter** always snaps back to live view
 
-All command output also appears on **COM30** (the second USB-CDC port) as plain text.
-Open it in any terminal with flow control set to **None**.
+All command output also appears on **COM30** as plain text. Open in any terminal with
+flow control set to **None**.
 
 ## Known limitations
 
 - No NRST pin, use `connect_rst enable` for targets that require it
-- Keyboard shift/Fn/Ctrl layers not decoded, only lowercase letters, digits, and
-  unshifted symbols available in the REPL
 - No double buffering (no PSRAM), display redraws only on keypress to avoid flicker
-- SWD only (JTAG wiring not brought out to the Grove port in this configuration)
-- On-device `flash` erases the union span of an ELF's loadable segments in one pass, so a
-  preserved config sector wedged between app regions would be wiped. Flash such layouts
-  from host GDB, or switch to per-segment erase in `bmp_standalone_load.c`.
-- SD pins default to the documented Cardputer values, confirm for your unit and set
+- SWD only, JTAG wiring not brought out to the Grove port
+- Keyboard Fn/Ctrl layers not decoded, only Fn+;/Fn+. scroll shortcuts are handled
+- RTT and semihosting compiled in but untested
+- SD pins default to documented Cardputer values, confirm for your unit and set
   `SDCARD_SHARED_BUS` if the card shares the display SPI bus
-- `mem` dumps are capped at 256 bytes per command, and `regs` prints raw register indices,
-  not names
 
 ## Credits
 
