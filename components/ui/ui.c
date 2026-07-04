@@ -33,21 +33,14 @@ volatile bool host_session_active = false;
 
 // --- Scrollback buffer -----------------------------------------------------
 
-#define UI_COLS 40         // was 22 - testing whether the wrap width itself
-                            // was capping line length below what the panel
-                            // can actually display, vs. a real hardware/
-                            // hagl clip limit at the old value
-#define UI_VISIBLE_ROWS 10 // ~ (240 - prompt line) / 9px font, conservative
-#define UI_HISTORY_ROWS 50 // actual stored history - was equal to
-                            // UI_VISIBLE_ROWS before, meaning anything
-                            // scrolled off-screen was already gone from
-                            // memory, not just off-screen. Scrolling
-                            // needs real history to scroll into.
+#define UI_COLS 40
+#define UI_VISIBLE_ROWS 10
+#define UI_HISTORY_ROWS 50
 #define CMD_BUF_SIZE 64
 
 static char scrollback[UI_HISTORY_ROWS][UI_COLS + 1];
-static int  scrollback_head  = 0; // next slot to write (ring buffer)
-static int  scrollback_count = 0; // valid lines so far, capped at UI_HISTORY_ROWS
+static int  scrollback_head  = 0;
+static int  scrollback_count = 0;
 static char line_buf[64];
 static int  line_buf_len = 0;
 static SemaphoreHandle_t scrollback_mutex;
@@ -62,25 +55,13 @@ static void scrollback_push_line(const char* text) {
     xSemaphoreGive(scrollback_mutex);
 }
 
-// Splits arbitrary text (which may contain embedded newlines from a
-// multi-line command_process() result) into UI_COLS-wide scrollback rows.
-// Also mirrors output to the second USB CDC port (UART, index 1).
-// Both the scrollback and the CDC output use the same line_buf accumulator
-// so that multi-chunk gdb_out() calls (which send one logical line as
-// several separate write calls with no trailing newline) get buffered
-// into complete lines before being emitted - otherwise \r\n gets injected
-// mid-entry and the terminal output looks garbled.
-// scrollback_flush_partial() must be called after command_process()
-// returns to flush any partial line that didn't end with \n.
 void ui_capture_write(const char* str) {
     for (const char* p = str; *p; p++) {
         if (*p == '\n' || line_buf_len >= UI_COLS) {
             line_buf[line_buf_len] = '\0';
-            // Flush complete line to CDC UART port
             tud_cdc_n_write(1, line_buf, line_buf_len);
             tud_cdc_n_write(1, "\r\n", 2);
             tud_cdc_n_write_flush(1);
-            // And to on-screen scrollback
             scrollback_push_line(line_buf);
             line_buf_len = 0;
             if (*p == '\n')
@@ -105,8 +86,6 @@ static void scrollback_flush_partial(void) {
 
 static hagl_backend_t* disp;
 
-// 0 = showing the most recent UI_VISIBLE_ROWS lines (the live tail).
-// Larger values shift the visible window further back into history.
 static int scroll_offset = 0;
 
 static int max_scroll_offset(void) {
@@ -186,30 +165,24 @@ static void ui_task(void* pv) {
     };
     wchar_t w_boot_buf[UI_COLS + 1];
 
-    // 4 steps * 3 frames per step = 12 total frames. 12 * 200ms = 2400ms (2.4 seconds)
     for (int step = 0; step < 4; step++) {
         for (int frame = 0; frame < 3; frame++) {
             hagl_clear(disp);
 
-            // 1. Create a cycling text spinner log string
             char status_line[64];
             char spinner = (frame == 0) ? '/' : (frame == 1) ? '-' : '\\';
             snprintf(status_line, sizeof(status_line), "[ %c ] %s", spinner, boot_steps[step]);
-            
-            // Convert ASCII characters to wchar_t for hagl_put_text compatibility
+
             int j = 0;
-            for (; status_line[j] && j < UI_COLS; j++) {
+            for (; status_line[j] && j < UI_COLS; j++)
                 w_boot_buf[j] = (wchar_t)status_line[j];
-            }
             w_boot_buf[j] = 0;
-            
-            // Render text string using the 0x07E0 palette value
+
             hagl_put_text(disp, w_boot_buf, 10, 30, 0x07E0, font6x9);
 
-            // 2. Render an animating loading progress bar
             hagl_put_text(disp, L"LOADING SUBSYSTEMS:", 10, 60, 0xFFFF, font6x9);
-            
-            int total_ticks = (step * 3) + frame + 1; // goes from 1 to 12
+
+            int total_ticks = (step * 3) + frame + 1;
             wchar_t progress_bar[20] = L"[";
             int p = 1;
             for (; p <= total_ticks; p++) progress_bar[p] = L'=';
@@ -220,11 +193,10 @@ static void ui_task(void* pv) {
             hagl_put_text(disp, progress_bar, 10, 75, 0x07E0, font6x9);
 
             hagl_flush(disp);
-            vTaskDelay(pdMS_TO_TICKS(200)); // Delay between animation frames
+            vTaskDelay(pdMS_TO_TICKS(200));
         }
     }
 
-    // Flash a quick "READY" message before handing over to the terminal
     hagl_clear(disp);
     hagl_put_text(disp, L"[ OK ] SYSTEM READY", 10, 45, 0x07E0, font6x9);
     hagl_flush(disp);
@@ -250,7 +222,6 @@ static void ui_task(void* pv) {
     xSemaphoreGive(scrollback_mutex);
     // =========================================================================
 
-    // Rest of your existing variables and loop setup
     static char cmd_buf[CMD_BUF_SIZE];
     int cmd_len = 0;
 
@@ -260,11 +231,6 @@ static void ui_task(void* pv) {
 
     char prompt[CMD_BUF_SIZE + 8];
 
-    // Only re-render when something actually changed - calling
-    // hagl_clear()+redraw unconditionally every 25ms produced a visible
-    // full-screen clear-then-redraw flicker, since this build has no
-    // double buffering (Cardputer has no PSRAM to put a second 63KB
-    // framebuffer in). Force one render on first boot.
     bool dirty = true;
 
     while (1) {
@@ -272,12 +238,12 @@ static void ui_task(void* pv) {
 
         // fn is held (not edge-triggered) so fn+key combos work while
         // fn stays down. Position per keyboard.c's key_value_map: (0,2).
+        // shift is at (1,2) - same treatment.
         bool fn_held = false;
+        bool shift_held = false;
         for (int i = 0; i < n; i++) {
-            if (keys[i].x == 0 && keys[i].y == 2) {
-                fn_held = true;
-                break;
-            }
+            if (keys[i].x == 0 && keys[i].y == 2) fn_held = true;
+            if (keys[i].x == 1 && keys[i].y == 2) shift_held = true;
         }
 
         // Edge-detect: only act on keys that are newly pressed this scan
@@ -309,27 +275,26 @@ static void ui_task(void* pv) {
                     scroll_offset = 0;
                 continue;
             }
-            char c = keyboard_char_for(keys[i]);
+
+            char c = shift_held ? keyboard_char_for_shift(keys[i]) : keyboard_char_for(keys[i]);
+
             if (c == '\r') {
-                // Jumping back to live view on Enter avoids a confusing
-                // state where you submit a command while still looking
-                // at old scrollback.
                 scroll_offset = 0;
                 if (cmd_len > 0 && !host_session_active) {
                     cmd_buf[cmd_len] = '\0';
                     char echo[CMD_BUF_SIZE + 8];
                     snprintf(echo, sizeof(echo), "> %s", cmd_buf);
                     scrollback_push_line(echo);
-                ui_capture_active = true;
-                if (!ui_debug_dispatch(cmd_buf)) {
-                    int result = command_process(cur_target, cmd_buf);
-                    if (result < 0)
-                        scrollback_push_line("(no such command)");
-                    else if (result > 0)
-                        scrollback_push_line("(command failed)");
-                }
-                scrollback_flush_partial();
-                ui_capture_active = false;
+                    ui_capture_active = true;
+                    if (!ui_debug_dispatch(cmd_buf)) {
+                        int result = command_process(cur_target, cmd_buf);
+                        if (result < 0)
+                            scrollback_push_line("(no such command)");
+                        else if (result > 0)
+                            scrollback_push_line("(command failed)");
+                    }
+                    scrollback_flush_partial();
+                    ui_capture_active = false;
                 } else if (host_session_active) {
                     scrollback_push_line("(USB host attached)");
                 }
@@ -341,9 +306,6 @@ static void ui_task(void* pv) {
                 if (cmd_len < CMD_BUF_SIZE - 1)
                     cmd_buf[cmd_len++] = c;
             }
-            // modifier keys (fn/shift/ctrl/opt/alt, c == 0) intentionally
-            // ignored for now - extend key_value_map's shift layer in
-            // keyboard.c if you want uppercase/symbols.
         }
 
         memcpy(prev_keys, keys, sizeof(kb_point_t) * n);
@@ -364,19 +326,10 @@ static void on_gdb_line_state(bool dtr, bool rts, void* ctx) {
     (void)rts;
     (void)ctx;
     if (!dtr) {
-        // DTR drop is immediate - GDB session genuinely ended.
         host_session_active = false;
         return;
     }
-    // DTR assert: wait 200ms before believing it's a real GDB session.
-    // Windows CDC enumeration often causes a brief transient DTR pulse
-    // on the GDB port when *any* port on the device is opened (including
-    // COM30/UART), which would otherwise latch host_session_active true
-    // and suppress the keyboard REPL permanently.
     vTaskDelay(pdMS_TO_TICKS(200));
-    // Re-read: if DTR dropped during the delay it was just a transient.
-    // TinyUSB doesn't give us a "current DTR state" getter, so we check
-    // whether tud_cdc_n_connected() (which does gate on DTR) is still true.
     if (tud_cdc_n_connected(0)) {
         host_session_active = true;
     }
@@ -385,16 +338,11 @@ static void on_gdb_line_state(bool dtr, bool rts, void* ctx) {
 void ui_start(void) {
     scrollback_mutex = xSemaphoreCreateMutex();
 
-    // 1. Clear history buffer so it starts empty
-    for (int i = 0; i < UI_HISTORY_ROWS; i++) {
+    for (int i = 0; i < UI_HISTORY_ROWS; i++)
         scrollback[i][0] = '\0';
-    }
 
-    // 2. Initialize the rest of the systems
     usb_glue_gdb_set_line_state_callback(on_gdb_line_state, NULL);
 
-    // 3. Create the UI task where the animation will play
     xTaskCreate(&ui_task, "ui_task", 8192, NULL, 4, NULL);
     ESP_LOGI(TAG, "started");
 }
-
