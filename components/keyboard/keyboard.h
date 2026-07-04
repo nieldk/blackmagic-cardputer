@@ -15,6 +15,10 @@ typedef struct {
 // 4x14 layout, but guard anyway).
 char keyboard_char_for(kb_point_t p);
 
+// Shift layer variant - returns the shifted character for the position,
+// falling back to the normal layer if no shift variant exists.
+char keyboard_char_for_shift(kb_point_t p);
+
 void keyboard_init(void);
 
 // Scans the matrix once. Writes up to max_keys points into out, returns
