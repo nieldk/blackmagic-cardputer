@@ -95,6 +95,7 @@ set(BM_REQUIREMENTS
     hal
     esp_timer
     tinyusb
+    jtag_scanner
 )
 
 # Get the current working branch
