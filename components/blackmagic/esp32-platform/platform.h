@@ -64,8 +64,20 @@ extern bool debug_bmp;
 
 // ON ESP32 we dont have the PORTS, this is dummy value until code is corrected
 #define SWCLK_PORT (0)
+
+#if defined(CONFIG_BOARD_CARDPUTER)
+// Runtime pin variables - allow swd_scan to auto-detect and swap SWDIO/SWCLK
+// if the Grove cable is plugged in the wrong way around.
+extern int g_swdio_pin;
+extern int g_swclk_pin;
+#define SWCLK_PIN g_swclk_pin
+#define SWDIO_PIN g_swdio_pin
+// Function to (re)assign pins - called by auto-detect in cmd_swd_scan
+void platform_swd_set_pins(int swdio, int swclk);
+#else
 #define SWCLK_PIN TCK_PIN
 #define SWDIO_PIN TMS_PIN
+#endif
 
 #define gpio_set_val(port, pin, value)       \
     do {                                     \
