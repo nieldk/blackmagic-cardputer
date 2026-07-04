@@ -33,10 +33,26 @@ static const char key_value_map[4][14] = {
     {0 /*ctrl*/, 0 /*opt*/, 0 /*alt*/, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', ' '},
 };
 
+// Shift layer - mirrors key_value_map positions.
+// '\0' means no shift variant (key unchanged or non-printable).
+static const char key_shift_map[4][14] = {
+    {'~', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\b'},
+    {'\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '|'},
+    {0,    0,   'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"',  '\r'},
+    {0,    0,   0,   'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?',  ' '},
+};
+
 char keyboard_char_for(kb_point_t p) {
     if (p.y > 3 || p.x > 13)
         return 0;
     return key_value_map[p.y][p.x];
+}
+
+char keyboard_char_for_shift(kb_point_t p) {
+    if (p.y > 3 || p.x > 13)
+        return 0;
+    char c = key_shift_map[p.y][p.x];
+    return c ? c : key_value_map[p.y][p.x];
 }
 
 void keyboard_init(void) {
