@@ -35,6 +35,25 @@ else()
     message(WARNING "command.c not found at repo root — submodule file will be used unpatched")
 endif()
 
+# Emulated-target sources. Unlike the two files above these are NEW files, not
+# patches, but the same reasoning applies: keep them at the repo root and copy
+# them into the submodule's src/target/ so a submodule checkout/reset never
+# loses them. The .h files must land next to the .c files because src/target is
+# an include dir (so command.c can #include "emu_shim.h" and emu_shim.c can
+# find emu_target.h). This copy runs at configure time — if you edit any of
+# these at the repo root, run `idf.py reconfigure` (or delete build/) so the
+# fresh copy is picked up.
+set(EMU_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(EMU_DST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/components/blackmagic/blackmagic-fw/src/target/")
+foreach(emu_file emu_target.c emu_target.h emu_shim.c emu_shim.h)
+    if(EXISTS "${EMU_SRC_DIR}/${emu_file}")
+        file(COPY "${EMU_SRC_DIR}/${emu_file}" DESTINATION "${EMU_DST_DIR}")
+        message(STATUS "Copied ${emu_file} into blackmagic-fw/src/target")
+    else()
+        message(WARNING "${emu_file} not found at repo root — emulator will not build")
+    endif()
+endforeach()
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # portYIELD_FROM_ISR() on this IDF 5.1.4/xtensa-port pairing calls
