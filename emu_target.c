@@ -1,71 +1,73 @@
 /*
- * emu_target.c - word-addressed model of an STM32F103 medium-density target
- * plus its ARM CoreSight debug infrastructure (ROM table, SCS, FPEC).
+ * emu_target.c - byte-addressable model of an STM32F103 medium-density target
+ * plus its ARM CoreSight debug infrastructure (ROM table, SCS) and FPEC.
  *
- * Everything here answers memory reads/writes only; the ADIv5 DP/AP transport
- * lives in emu_shim.c. The layout is exactly what BMP's adiv5_component_probe,
- * cortexm_probe and stm32f1_probe walk, so target detection succeeds without
- * any physical SWD.
+ * Flash is a sparse array of 1 KiB pages allocated on demand, so RAM tracks
+ * the size of the image actually programmed rather than the full 128 KiB. The
+ * FPEC (flash controller) models unlock, page erase (PER), mass erase (MER)
+ * and program (PG) so GDB / on-device `flash` can erase, program and verify.
+ *
+ * Everything here answers memory loads/stores only; the ADIv5 DP/AP transport
+ * lives in emu_shim.c.
  */
 #include "emu_target.h"
 #include <string.h>
+#include <stdlib.h>
 
-/* ---- backing stores ----------------------------------------------------- *
- * Kept small: only the first pages are backed. Reads outside the backed
- * window return the erased/zero value for the region. This is enough for
- * detection and for inspecting the vector table; it is NOT a CPU model.     */
-#define EMU_FLASH_BACKED 0x400U /* 1 KiB seeded (vector table + a little)   */
-#define EMU_SRAM_BACKED  0x400U /* 1 KiB seeded                             */
+/* ---- flash: sparse 1 KiB pages ------------------------------------------ */
+#define FLASH_PAGES (EMU_FLASH_SIZE / EMU_FLASH_PAGE) /* 128 */
+static uint8_t *g_flash_page[FLASH_PAGES];
 
-static uint8_t g_flash[EMU_FLASH_BACKED];
-static uint8_t g_sram[EMU_SRAM_BACKED];
+/* ---- SRAM: full 20 KiB backing ------------------------------------------ */
+static uint8_t g_sram[EMU_SRAM_SIZE];
 
-/* Debug registers that BMP writes then reads back. */
+/* ---- debug registers BMP writes then reads back ------------------------- */
 static uint32_t g_dhcsr;
 static uint32_t g_demcr;
 static uint32_t g_dcrsr;
 static uint32_t g_dcrdr;
 static uint32_t g_aircr;
 
-/* FPEC (flash controller) minimal state, for the erase/program paths. */
+/* ---- FPEC state --------------------------------------------------------- */
+#define FPEC_KEYR (EMU_FPEC_BASE + 0x04U)
+#define FPEC_SR   (EMU_FPEC_BASE + 0x0cU)
+#define FPEC_CR   (EMU_FPEC_BASE + 0x10U)
+#define FPEC_AR   (EMU_FPEC_BASE + 0x14U)
+#define FPEC_OBR  (EMU_FPEC_BASE + 0x1cU)
+#define FPEC_WRPR (EMU_FPEC_BASE + 0x20U)
+#define FPEC_KEY1 0x45670123U
+#define FPEC_KEY2 0xCDEF89ABU
+#define CR_LOCK (1U << 7U)
+#define CR_STRT (1U << 6U)
+#define CR_MER  (1U << 2U)
+#define CR_PER  (1U << 1U)
+#define CR_PG   (1U << 0U)
+#define SR_BSY  (1U << 0U)
+#define SR_EOP  (1U << 5U)
+
 static uint32_t g_flash_keyr;
 static uint32_t g_flash_cr;
 static uint32_t g_flash_sr;
+static uint32_t g_flash_ar;
 static bool g_flash_unlocked;
-
-#define FPEC_BASE 0x40022000U
-#define FPEC_KEYR (FPEC_BASE + 0x04U)
-#define FPEC_SR   (FPEC_BASE + 0x0cU)
-#define FPEC_CR   (FPEC_BASE + 0x10U)
-#define FPEC_AR   (FPEC_BASE + 0x14U)
-#define FPEC_KEY1 0x45670123U
-#define FPEC_KEY2 0xCDEF89ABU
-#define FPEC_SR_BSY 0x01U
-#define FPEC_SR_EOP 0x20U
 
 /* ---- CoreSight ID helpers ---------------------------------------------- *
  * adiv5_ap_read_id() reads 16 bytes and keeps bytes [0],[4],[8],[12] as the
  * four ID bytes. We therefore only need the low byte of each ID word. Both
  * CIDR and PIDR ID words are returned with the meaningful value in bits 7:0. */
-
-/* Component ID (CIDR0..3 low bytes -> assembled 32-bit). */
 #define CIDR_ROMTABLE 0xB105100DU /* class 0x1 (ROM table)          */
 #define CIDR_GIPC     0xB105E00DU /* class 0xe (Generic IP: SCS)    */
 
-/* Peripheral ID low/high words. Only low byte of each 4-byte slot is used. */
 /* ROM table: part 0x4c3, designer STMicro (0x020). */
-#define PIDR_ROM_LO 0x000A04C3U /* PIDR0..3 assembled */
-#define PIDR_ROM_HI 0x00000000U /* PIDR4 (JEP106 continuation 0x0) */
+#define PIDR_ROM_LO 0x000A04C3U
+#define PIDR_ROM_HI 0x00000000U
 /* SCS: part 0x000, designer ARM (0x43b). */
-#define PIDR_SCS_LO 0x000BB000U /* PIDR0..3 assembled */
-#define PIDR_SCS_HI 0x00000004U /* PIDR4 (JEP106 continuation 0x4) */
+#define PIDR_SCS_LO 0x000BB000U
+#define PIDR_SCS_HI 0x00000004U
 
-/* Return the ID byte for a given component-relative offset in the
- * 0xFD0..0xFFC ID window. off is masked to that window by the caller. */
 static uint32_t id_word(uint32_t cidr, uint32_t pidr_lo, uint32_t pidr_hi, uint32_t off)
 {
 	switch (off) {
-	/* CIDR0..3 at 0xFF0,0xFF4,0xFF8,0xFFC */
 	case 0xFF0U:
 		return (cidr >> 0U) & 0xffU;
 	case 0xFF4U:
@@ -74,7 +76,6 @@ static uint32_t id_word(uint32_t cidr, uint32_t pidr_lo, uint32_t pidr_hi, uint3
 		return (cidr >> 16U) & 0xffU;
 	case 0xFFCU:
 		return (cidr >> 24U) & 0xffU;
-	/* PIDR0..3 at 0xFE0,0xFE4,0xFE8,0xFEC */
 	case 0xFE0U:
 		return (pidr_lo >> 0U) & 0xffU;
 	case 0xFE4U:
@@ -83,30 +84,23 @@ static uint32_t id_word(uint32_t cidr, uint32_t pidr_lo, uint32_t pidr_hi, uint3
 		return (pidr_lo >> 16U) & 0xffU;
 	case 0xFECU:
 		return (pidr_lo >> 24U) & 0xffU;
-	/* PIDR4..7 at 0xFD0,0xFD4,0xFD8,0xFDC */
 	case 0xFD0U:
 		return (pidr_hi >> 0U) & 0xffU;
-	case 0xFD4U:
-	case 0xFD8U:
-	case 0xFDCU:
-		return 0U;
 	default:
 		return 0U;
 	}
 }
 
-/* ---- ROM table ---------------------------------------------------------- *
- * Minimal: one present entry pointing at the SCS, then a terminator.
- * Offset for SCS: 0xE000E000 - 0xE00FF000 = 0xFFF0F000 (wraps), +present.   */
-#define ROM_ENTRY_SCS 0xFFF0F003U
-#define ROM_MEMTYPE   0xFCCU /* SYSMEM bit0 */
+/* ---- ROM table ---------------------------------------------------------- */
+#define ROM_ENTRY_SCS 0xFFF0F003U /* -> SCS @ 0xE000E000, present */
+#define ROM_MEMTYPE   0xFCCU      /* SYSMEM bit0 */
 
 static uint32_t rom_read(uint32_t off)
 {
 	if (off >= 0xFD0U && off <= 0xFFCU)
 		return id_word(CIDR_ROMTABLE, PIDR_ROM_LO, PIDR_ROM_HI, off);
 	if (off == ROM_MEMTYPE)
-		return 0x1U; /* SYSMEM present */
+		return 0x1U;
 	switch (off) {
 	case 0x000U:
 		return ROM_ENTRY_SCS;
@@ -127,7 +121,7 @@ static uint32_t scs_read(uint32_t off)
 		return EMU_CPUID;
 	case 0xD88U: /* CPACR - report no FP (readback != written) => v7m */
 		return 0x00000000U;
-	case 0xDF0U: /* DHCSR - halted, debug enabled, regs ready, no reset  */
+	case 0xDF0U: /* DHCSR - halted, debug enabled, regs ready, no reset */
 		return 0x00030003U;
 	case 0xDF4U: /* DCRSR */
 		return g_dcrsr;
@@ -145,7 +139,7 @@ static uint32_t scs_read(uint32_t off)
 static void scs_write(uint32_t off, uint32_t value)
 {
 	switch (off) {
-	case 0xDF0U: /* DHCSR */
+	case 0xDF0U:
 		g_dhcsr = value;
 		break;
 	case 0xDF4U:
@@ -165,6 +159,52 @@ static void scs_write(uint32_t off, uint32_t value)
 	}
 }
 
+/* ---- flash page helpers ------------------------------------------------- */
+static uint8_t flash_byte(uint32_t addr)
+{
+	uint32_t off = addr - EMU_FLASH_BASE;
+	uint32_t page = off / EMU_FLASH_PAGE;
+	if (page >= FLASH_PAGES || !g_flash_page[page])
+		return 0xFFU; /* erased */
+	return g_flash_page[page][off % EMU_FLASH_PAGE];
+}
+
+static void flash_write_byte(uint32_t addr, uint8_t value)
+{
+	uint32_t off = addr - EMU_FLASH_BASE;
+	uint32_t page = off / EMU_FLASH_PAGE;
+	if (page >= FLASH_PAGES)
+		return;
+	if (!g_flash_page[page]) {
+		g_flash_page[page] = malloc(EMU_FLASH_PAGE);
+		if (!g_flash_page[page])
+			return; /* out of RAM: silently drop (verify will catch) */
+		memset(g_flash_page[page], 0xFF, EMU_FLASH_PAGE);
+	}
+	/* NOR flash can only clear bits without an erase; AND models that. */
+	g_flash_page[page][off % EMU_FLASH_PAGE] &= value;
+}
+
+static void flash_erase_page(uint32_t addr)
+{
+	uint32_t off = addr - EMU_FLASH_BASE;
+	uint32_t page = off / EMU_FLASH_PAGE;
+	if (page >= FLASH_PAGES)
+		return;
+	if (g_flash_page[page]) {
+		free(g_flash_page[page]);
+		g_flash_page[page] = NULL; /* absent page reads as 0xFF */
+	}
+}
+
+static void flash_erase_all(void)
+{
+	for (uint32_t i = 0; i < FLASH_PAGES; ++i) {
+		free(g_flash_page[i]);
+		g_flash_page[i] = NULL;
+	}
+}
+
 /* ---- FPEC --------------------------------------------------------------- */
 static uint32_t fpec_read(uint32_t addr)
 {
@@ -172,7 +212,12 @@ static uint32_t fpec_read(uint32_t addr)
 	case FPEC_SR:
 		return g_flash_sr; /* BSY never set: operations are instant */
 	case FPEC_CR:
-		return g_flash_cr;
+		/* LOCK reflects unlock state; mode bits reflect last write. */
+		return (g_flash_cr & ~CR_LOCK) | (g_flash_unlocked ? 0U : CR_LOCK);
+	case FPEC_OBR:
+		return 0x00000000U; /* not read-protected */
+	case FPEC_WRPR:
+		return 0xFFFFFFFFU; /* no write protection */
 	default:
 		return 0x00000000U;
 	}
@@ -188,82 +233,112 @@ static void fpec_write(uint32_t addr, uint32_t value)
 		break;
 	case FPEC_CR:
 		g_flash_cr = value;
-		/* Signal completion immediately for erase/program ops. */
-		g_flash_sr |= FPEC_SR_EOP;
-		g_flash_sr &= ~FPEC_SR_BSY;
+		if ((value & CR_STRT) && g_flash_unlocked) {
+			if (value & CR_PER)
+				flash_erase_page(g_flash_ar);
+			else if (value & CR_MER)
+				flash_erase_all();
+			g_flash_sr |= SR_EOP;
+			g_flash_sr &= ~SR_BSY;
+		}
+		break;
+	case FPEC_AR:
+		g_flash_ar = value;
 		break;
 	case FPEC_SR:
-		/* write-1-clear on EOP (and WRPRTERR/PGERR which we don't model) */
-		g_flash_sr &= ~(value & FPEC_SR_EOP);
+		g_flash_sr &= ~(value & SR_EOP); /* EOP is W1C */
 		break;
 	default:
 		break;
 	}
 }
 
-/* ---- flash / SRAM ------------------------------------------------------- */
-static uint32_t mem_backed_read(const uint8_t *store, uint32_t backed, uint32_t off, uint32_t erased)
+/* ---- public dispatch ---------------------------------------------------- */
+static uint32_t size_mask(uint32_t size)
 {
-	if (off + 4U <= backed) {
-		uint32_t v;
-		memcpy(&v, store + off, sizeof(v));
-		return v;
-	}
-	return erased;
+	return size >= 4U ? 0xFFFFFFFFU : ((1U << (size * 8U)) - 1U);
 }
 
-/* ---- public dispatch ---------------------------------------------------- */
-uint32_t emu_target_read_word(uint32_t addr)
+uint32_t emu_target_load(uint32_t addr, uint32_t size)
 {
-	if (addr >= EMU_FLASH_BASE && addr < EMU_FLASH_BASE + EMU_FLASH_SIZE)
-		return mem_backed_read(g_flash, EMU_FLASH_BACKED, addr - EMU_FLASH_BASE, 0xFFFFFFFFU);
-	if (addr >= EMU_SRAM_BASE && addr < EMU_SRAM_BASE + EMU_SRAM_SIZE)
-		return mem_backed_read(g_sram, EMU_SRAM_BACKED, addr - EMU_SRAM_BASE, 0x00000000U);
+	const uint32_t mask = size_mask(size);
+
+	if (addr >= EMU_FLASH_BASE && addr < EMU_FLASH_BASE + EMU_FLASH_SIZE) {
+		uint32_t v = 0;
+		for (uint32_t i = 0; i < size; ++i)
+			v |= (uint32_t)flash_byte(addr + i) << (8U * i);
+		return v & mask;
+	}
+	if (addr >= EMU_SRAM_BASE && addr < EMU_SRAM_BASE + EMU_SRAM_SIZE) {
+		uint32_t v = 0;
+		for (uint32_t i = 0; i < size; ++i)
+			v |= (uint32_t)g_sram[(addr + i) - EMU_SRAM_BASE] << (8U * i);
+		return v & mask;
+	}
 	if (addr == EMU_DBGMCU_IDCODE)
-		return EMU_IDCODE;
+		return EMU_IDCODE & mask;
 	if (addr >= EMU_ROM_BASE && addr < EMU_ROM_BASE + 0x1000U)
-		return rom_read(addr - EMU_ROM_BASE);
+		return rom_read(addr - EMU_ROM_BASE) & mask;
 	if (addr >= EMU_SCS_BASE && addr < EMU_SCS_BASE + 0x1000U)
-		return scs_read(addr - EMU_SCS_BASE);
-	if (addr >= FPEC_BASE && addr < FPEC_BASE + 0x400U)
-		return fpec_read(addr);
+		return scs_read(addr - EMU_SCS_BASE) & mask;
+	if (addr >= EMU_FPEC_BASE && addr < EMU_FPEC_BASE + 0x400U)
+		return fpec_read(addr) & mask;
 	return 0x00000000U;
 }
 
-void emu_target_write_word(uint32_t addr, uint32_t value)
+void emu_target_store(uint32_t addr, uint32_t value, uint32_t size)
 {
 	if (addr >= EMU_FLASH_BASE && addr < EMU_FLASH_BASE + EMU_FLASH_SIZE) {
-		uint32_t off = addr - EMU_FLASH_BASE;
-		if (g_flash_unlocked && off + 4U <= EMU_FLASH_BACKED)
-			memcpy(g_flash + off, &value, sizeof(value));
+		if (g_flash_unlocked && (g_flash_cr & CR_PG)) {
+			for (uint32_t i = 0; i < size; ++i)
+				flash_write_byte(addr + i, (uint8_t)(value >> (8U * i)));
+			g_flash_sr |= SR_EOP; /* program complete */
+			g_flash_sr &= ~SR_BSY;
+		}
 		return;
 	}
 	if (addr >= EMU_SRAM_BASE && addr < EMU_SRAM_BASE + EMU_SRAM_SIZE) {
-		uint32_t off = addr - EMU_SRAM_BASE;
-		if (off + 4U <= EMU_SRAM_BACKED)
-			memcpy(g_sram + off, &value, sizeof(value));
+		for (uint32_t i = 0; i < size; ++i)
+			g_sram[(addr + i) - EMU_SRAM_BASE] = (uint8_t)(value >> (8U * i));
 		return;
 	}
 	if (addr >= EMU_SCS_BASE && addr < EMU_SCS_BASE + 0x1000U) {
 		scs_write(addr - EMU_SCS_BASE, value);
 		return;
 	}
-	if (addr >= FPEC_BASE && addr < FPEC_BASE + 0x400U) {
+	if (addr >= EMU_FPEC_BASE && addr < EMU_FPEC_BASE + 0x400U) {
 		fpec_write(addr, value);
 		return;
 	}
-	/* writes elsewhere are silently dropped */
+	/* stores elsewhere are silently dropped */
+}
+
+uint32_t emu_target_read_word(uint32_t addr)
+{
+	return emu_target_load(addr, 4U);
+}
+
+void emu_target_write_word(uint32_t addr, uint32_t value)
+{
+	emu_target_store(addr, value, 4U);
 }
 
 void emu_target_reset(void)
 {
-	memset(g_flash, 0xFF, sizeof(g_flash));
+	flash_erase_all();
 	memset(g_sram, 0x00, sizeof(g_sram));
-	/* Seed a plausible vector table so `x/4xw 0x08000000` looks real. */
-	uint32_t sp = 0x20005000U; /* top of 20 KiB SRAM */
-	uint32_t rst = 0x08000101U; /* reset handler, thumb bit set */
-	memcpy(g_flash + 0, &sp, 4);
-	memcpy(g_flash + 4, &rst, 4);
+
+	/* Seed a plausible vector table so `x/4xw 0x08000000` looks real,
+	 * written directly (bypassing FPEC lock). */
+	g_flash_page[0] = malloc(EMU_FLASH_PAGE);
+	if (g_flash_page[0]) {
+		memset(g_flash_page[0], 0xFF, EMU_FLASH_PAGE);
+		uint32_t sp = 0x20005000U;  /* top of 20 KiB SRAM */
+		uint32_t rst = 0x08000101U; /* reset handler, thumb bit set */
+		memcpy(g_flash_page[0] + 0, &sp, 4);
+		memcpy(g_flash_page[0] + 4, &rst, 4);
+	}
+
 	g_dhcsr = 0;
 	g_demcr = 0;
 	g_dcrsr = 0;
@@ -272,5 +347,6 @@ void emu_target_reset(void)
 	g_flash_keyr = 0;
 	g_flash_cr = 0;
 	g_flash_sr = 0;
+	g_flash_ar = 0;
 	g_flash_unlocked = false;
 }
