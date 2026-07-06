@@ -63,12 +63,12 @@ uint8_t const cdcmsc_desc_hs_configuration[] = {
 #endif
 
 static char *cdcmsc_string_desc[] = {
-    (char[]){0x09, 0x04},   // 0: English (0x0409)
-    "Litui",                // 1: Manufacturer
-    "Blackmagic ESP32 MSC", // 2: Product
-    "blackmagic",           // 3: Serial (overwritten)
-    "Blackmagic GDB",       // 4: CDC Interface
-    "BMP Storage",          // 5: MSC Interface
+    (char[]){0x09, 0x04},       // 0: English (0x0409)
+    "Niel Nielsen",             // 1: Manufacturer
+    "Blackmagic CardPuter MSC", // 2: Product
+    "blackmagic",               // 3: Serial (overwritten)
+    "Blackmagic GDB",           // 4: CDC Interface
+    "BMP Storage",              // 5: MSC Interface
 };
 
 void cdcmsc_set_serial_number(const char *serial_number) {
