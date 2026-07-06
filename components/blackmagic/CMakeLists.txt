@@ -19,6 +19,10 @@ set(BM_SOURCES
     ${BM_TARGET_DIR}/adiv5.c
     ${BM_TARGET_DIR}/adiv5_jtag.c
     ${BM_TARGET_DIR}/adiv5_swd.c
+    # Emulated STM32F103 target (no-pins in-firmware target). Copied into
+    # src/target/ by the repo-root CMakeLists before configure.
+    ${BM_TARGET_DIR}/emu_target.c
+    ${BM_TARGET_DIR}/emu_shim.c
     ${BM_TARGET_DIR}/at32f43x.c
     ${BM_TARGET_DIR}/ch32f1.c
     ${BM_TARGET_DIR}/cortex.c
