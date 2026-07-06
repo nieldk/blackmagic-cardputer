@@ -151,9 +151,9 @@ uint8_t const blackmagic_desc_hs_configuration[] = {
 static char* blackmagic_string_desc[] = {
     (char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
     "Niel Nielsen", // 1: Manufacturer
-    "Blackmagic ESP32", // 2: Product
+    "Blackmagic CardPuter", // 2: Product
     "blackmagic", // 3: Serials, should use chip ID
-    "Blackmagic ESP32 CDC", // 4: CDC Interface
+    "Blackmagic CardPuter CDC", // 4: CDC Interface
     "", // 5: MSC Interface
     "", // 6: HIDs
 };
