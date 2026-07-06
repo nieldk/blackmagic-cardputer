@@ -14,15 +14,6 @@ cmake_minimum_required(VERSION 3.16)
 # side effect.
 set(COMPONENTS main)
 
-set(GDB_PACKET_SRC "${CMAKE_CURRENT_SOURCE_DIR}/gdb_packet.c")
-set(GDB_PACKET_DST "${CMAKE_CURRENT_SOURCE_DIR}/components/blackmagic/blackmagic-fw/src/")
-if(EXISTS "${GDB_PACKET_SRC}")
-    file(COPY "${GDB_PACKET_SRC}" DESTINATION "${GDB_PACKET_DST}")
-    message(STATUS "Copied patched gdb_packet.c into blackmagic-fw")
-else()
-    message(WARNING "gdb_packet.c not found at repo root — submodule file will be used unpatched")
-endif()
-
 set(COMMAND_SRC "${CMAKE_CURRENT_SOURCE_DIR}/command.c")
 set(COMMAND_DST "${CMAKE_CURRENT_SOURCE_DIR}/components/blackmagic/blackmagic-fw/src/")
 if(EXISTS "${COMMAND_SRC}")
