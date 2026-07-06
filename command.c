@@ -38,6 +38,7 @@
 
 /* Emulated in-firmware STM32F103 target (no SWD pins). */
 #include "emu_shim.h"
+#include "jtag_scanner.h" /* Cardputer: brute-force SWD pinout scanner */
 
 #if PC_HOSTED == 0
 #include "jtag_scan.h"
@@ -60,6 +61,9 @@ static bool cmd_swd_scan(target_s *target, int argc, const char **argv);
 static bool cmd_emulate(target_s *t, int argc, const char **argv);
 static bool cmd_auto_scan(target_s *t, int argc, const char **argv);
 static bool cmd_frequency(target_s *t, int argc, const char **argv);
+#if defined(BOARD_CARDPUTER)
+static bool cmd_swd_pinout(target_s *t, int argc, const char **argv);
+#endif
 static bool cmd_targets(target_s *t, int argc, const char **argv);
 static bool cmd_morse(target_s *t, int argc, const char **argv);
 static bool cmd_halt_timeout(target_s *t, int argc, const char **argv);
@@ -95,6 +99,9 @@ const command_s cmd_list[] = {
 	{"swdp_scan", cmd_swd_scan, "Deprecated: use swd_scan instead"},
 	{"emulate", cmd_emulate, "Stand up an emulated STM32F103 target (no pins)"},
 	{"auto_scan", cmd_auto_scan, "Automatically scan all chain types for devices"},
+#if defined(BOARD_CARDPUTER)
+	{"swd_pinout", cmd_swd_pinout, "Brute-force SWD pinout scan across Grove pins: [pin1 pin2 ...]"},
+#endif
 	{"frequency", cmd_frequency, "set minimum high and low times: [FREQ]"},
 	{"targets", cmd_targets, "Display list of available targets"},
 	{"morse", cmd_morse, "Display morse error message"},
@@ -260,6 +267,23 @@ bool cmd_swd_scan(target_s *target, int argc, const char **argv)
 		targetid = strtoul(argv[1], NULL, 0);
 	if (platform_target_voltage())
 		gdb_outf("Target voltage: %s\n", platform_target_voltage());
+
+#if defined(BOARD_CARDPUTER)
+	/* Auto-detect SWDIO/SWCLK ordering across the two Grove pins.
+	 * If the cable is plugged in reversed, swap them silently so the
+	 * user never needs to care which wire landed on which pin. */
+	{
+		static const uint8_t grove_pins[] = {1, 2};
+		swd_scan_result_t pinout;
+		if (swd_scanner_scan(grove_pins, 2, &pinout)) {
+			if (pinout.swdio != g_swdio_pin || pinout.swclk != g_swclk_pin) {
+				gdb_outf("Auto-detected pins: SWDIO=GPIO%d SWCLK=GPIO%d\n",
+				         pinout.swdio, pinout.swclk);
+				platform_swd_set_pins(pinout.swdio, pinout.swclk);
+			}
+		}
+	}
+#endif
 
 	if (connect_assert_nrst)
 		platform_nrst_set_val(true); /* will be deasserted after attach */
@@ -723,3 +747,54 @@ static bool cmd_heapinfo(target_s *t, int argc, const char **argv)
 		gdb_outf("%s\n", "Set semihosting heapinfo: HEAP_BASE HEAP_LIMIT STACK_BASE STACK_LIMIT");
 	return true;
 }
+
+
+#if defined(BOARD_CARDPUTER)
+/*
+ * Brute-force SWD pinout scanner for Cardputer.
+ *
+ * The Cardputer Grove port exposes exactly two GPIOs: GPIO1 (G1) and
+ * GPIO2 (G2). With no arguments, scans both orderings of those two pins
+ * to identify which is SWDIO and which is SWCLK. Pass explicit pin
+ * numbers as arguments if scanning other GPIOs.
+ *
+ * Usage: swd_pinout [pin1 pin2 ...]
+ * Default: swd_pinout  (scans GPIO1 and GPIO2)
+ */
+static const uint8_t cardputer_grove_pins[] = {1, 2};
+
+static bool cmd_swd_pinout(target_s *t, int argc, const char **argv)
+{
+    (void)t;
+    const uint8_t *pins = cardputer_grove_pins;
+    int pin_count = 2;
+
+    uint8_t arg_pins[16];
+    if (argc > 1) {
+        pin_count = argc - 1;
+        if (pin_count > 16) pin_count = 16;
+        for (int i = 0; i < pin_count; i++)
+            arg_pins[i] = (uint8_t)strtoul(argv[i + 1], NULL, 10);
+        pins = arg_pins;
+    }
+
+    gdb_outf("SWD pinout scan: %d pins\n", pin_count);
+    for (int i = 0; i < pin_count; i++)
+        gdb_outf("  GPIO%d\n", pins[i]);
+    gdb_out("Scanning...\n");
+
+    swd_scan_result_t result;
+    bool found = swd_scanner_scan(pins, pin_count, &result);
+
+    if (!found) {
+        gdb_out("No SWD device found\n");
+        return true;
+    }
+
+    gdb_out("SWD device found!\n");
+    gdb_outf("  SWDIO = GPIO%d\n", result.swdio);
+    gdb_outf("  SWCLK = GPIO%d\n", result.swclk);
+    gdb_outf("  IDCODE = 0x%08x\n", result.idcode);
+    return true;
+}
+#endif /* BOARD_CARDPUTER */
