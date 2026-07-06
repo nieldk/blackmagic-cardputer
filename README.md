@@ -124,12 +124,17 @@ time, so run one or the other.
 What it is and isn't:
 
 - The core is always reported **halted**; there is no instruction execution. It is a
-  transport/enumeration model, not a CPU simulator.
-- Only the first **1 KiB** each of flash and SRAM is backed (seeded with a plausible
-  vector table). Beyond that, flash reads `0xffffffff` and SRAM reads `0x0`.
-- The flash controller (FPEC) accepts the unlock sequence and completes erase/program
-  instantly (`BSY` never asserts); writes land in the backed window only.
-- No NVIC / interrupt model.
+  transport/enumeration + flash model, not a CPU simulator, so `run`/`step` won't advance
+  code.
+- **Flash programming and verification work.** The full 128 KiB flash is modelled as
+  sparse 1 KiB pages allocated on demand, so `flash`, GDB `load` and `compare-sections`
+  erase, program and verify correctly. RAM used tracks the size of the image programmed,
+  not the whole 128 KiB. NOR semantics are honoured (a page must be erased before it can
+  be reprogrammed). The FPEC accepts the unlock/erase/program sequence and completes
+  instantly (`BSY` never asserts).
+- SRAM is the full 20 KiB.
+- No NVIC / interrupt model, and core register reads (`regs`) are not modelled, so the
+  PC reads as `0x00000000` after attach.
 
 The implementation lives in `blackmagic-fw/src/target/emu_target.c` (the STM32F103 memory
 and CoreSight register model) and `emu_shim.c` (the ADIv5 DP/AP transport, with posted-read
@@ -238,9 +243,9 @@ flow control set to **None**.
 - SWD only, JTAG wiring not brought out to the Grove port
 - Keyboard Fn/Ctrl layers not decoded, only Fn+;/Fn+. scroll shortcuts are handled
 - RTT and semihosting compiled in but untested
-- `monitor emulate` is an enumeration/transport model, not a CPU simulator: the core
-  reads as permanently halted, only the first 1 KiB each of flash/SRAM is backed, and
-  FPEC operations complete instantly
+- `monitor emulate` is an enumeration/transport + flash model, not a CPU simulator:
+  flash program/erase/verify work, but the core reads as permanently halted, `run`/`step`
+  don't advance code, and core registers aren't modelled (PC reads 0 after attach)
 - SD pins default to documented Cardputer values, confirm for your unit and set
   `SDCARD_SHARED_BUS` if the card shares the display SPI bus
 
