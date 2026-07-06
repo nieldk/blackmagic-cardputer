@@ -1,4 +1,4 @@
-idf_component_register(REQUIRES esp_rom app_update spi_flash freertos soc driver main)
+idf_component_register(REQUIRES esp_rom app_update spi_flash freertos soc driver main fatfs wear_levelling esp_partition)
 
 idf_component_get_property(FREERTOS_ORIG_INCLUDE_PATH freertos ORIG_INCLUDE_PATH)
 
@@ -32,6 +32,7 @@ target_include_directories(${COMPONENT_TARGET} INTERFACE
     "${COMPONENT_DIR}/config/"
     "${COMPONENT_DIR}/drivers/"
     "${COMPONENT_DIR}/drivers/dual-cdc/"
+    "${COMPONENT_DIR}/drivers/cdc-msc/"
     "${COMPONENT_DIR}/tinyusb/hw/bsp/"
     "${COMPONENT_DIR}/tinyusb/src/"
     "${COMPONENT_DIR}/tinyusb/src/device"
@@ -67,7 +68,12 @@ target_sources(${COMPONENT_TARGET} INTERFACE
 
     "${COMPONENT_DIR}/drivers/usb-glue.c"
 
+    "${COMPONENT_DIR}/drivers/storage.c"
+    "${COMPONENT_DIR}/drivers/msc_disk.c"
+
     "${COMPONENT_DIR}/drivers/dual-cdc/dual-cdc-descriptors.c"
+
+    "${COMPONENT_DIR}/drivers/cdc-msc/cdc-msc-descriptors.c"
 
     "${COMPONENT_DIR}/drivers/dap-link/dap-link-descriptors.c"
 )

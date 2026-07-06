@@ -194,6 +194,24 @@ bool dap_is_connected(void) {
 //     ESP_LOGI(DAP_TAG, "init done");
 // }
 
+// USB mode persistence: a one-byte NVS flag selects dual-CDC (default) or
+// CDC+MSC (drag files onto internal storage over USB). Toggled by the on-device
+// `usbmode` verb, which writes the flag and reboots.
+#include <nvs_flash.h>
+#include <nvs.h>
+
+static USBDeviceType usb_mode_from_nvs(void) {
+    USBDeviceType mode = USBDeviceTypeDualCDC;
+    nvs_handle_t h;
+    if(nvs_open("bmp", NVS_READONLY, &h) == ESP_OK) {
+        uint8_t v = 0;
+        if(nvs_get_u8(h, "usbmode", &v) == ESP_OK && v == 1)
+            mode = USBDeviceTypeCdcMsc;
+        nvs_close(h);
+    }
+    return mode;
+}
+
 void usb_init(void) {
     ESP_LOGI(TAG, "init");
 
@@ -212,7 +230,9 @@ void usb_init(void) {
 
     usb_state.connected = false;
     usb_uart_init();
-    usb_glue_init(USBDeviceTypeDualCDC);
+    USBDeviceType mode = usb_mode_from_nvs();
+    ESP_LOGI(TAG, "USB mode: %s", mode == USBDeviceTypeCdcMsc ? "CDC+MSC" : "dual-CDC");
+    usb_glue_init(mode);
     // } else {
     //     usb_glue_dap_set_receive_callback(dap_rx_callback, NULL);
 

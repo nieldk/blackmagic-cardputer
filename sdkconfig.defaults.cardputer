@@ -39,3 +39,18 @@ CONFIG_MIPI_DCS_ADDRESS_MODE_MIRROR_X_SELECTED=y
 # CONFIG_MIPI_DCS_ADDRESS_MODE_MIRROR_Y_SELECTED is not set
 # CONFIG_MIPI_DCS_ADDRESS_MODE_FLIP_X_SELECTED is not set
 # CONFIG_MIPI_DCS_ADDRESS_MODE_FLIP_Y_SELECTED is not set
+
+# --- USB-MSC internal storage (added for the storage/msc feature) -----------
+# 8 MB flash + a custom partition table that carves out a 3 MB FAT "storage"
+# partition, exposed over USB-MSC in `usbmode msc`.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# Wear-levelling sector size 512 (not the 4096 default): Windows refuses
+# 4K-native removable USB-MSC media, so present 512-byte logical blocks.
+CONFIG_WL_SECTOR_SIZE_512=y
+# CONFIG_WL_SECTOR_SIZE_4096 is not set
+CONFIG_WL_SECTOR_SIZE=512

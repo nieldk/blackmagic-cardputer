@@ -13,6 +13,11 @@
 #include "ui.h"                   // ui_capture_write()
 #include "target_lock.h"          // target_lock()/target_unlock()
 #include "bmp_standalone_load.h"  // bmp_load_elf()/bmp_load_bin()
+#include "storage.h"              // storage_acquire()/storage_release() (USB-MSC internal FS)
+#include <nvs.h>
+#include <esp_system.h>          // esp_restart()
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #define CMD_COPY_SIZE 96
 #define MAX_ARGV      6
@@ -130,9 +135,15 @@ static void v_flash(int argc, char **argv)
 		out("usage: flash <path> [hexaddr]");
 		return;
 	}
+	// Borrow the internal storage FS back from the USB-MSC host for this read.
+	// Harmless if no MSC/host: acquire mounts the internal partition at /sdcard.
+	bool have_fs = storage_acquire("/sdcard");
+
 	FILE *f = fopen(argv[1], "rb");
 	if (!f) {
 		out("open %s failed", argv[1]);
+		if (have_fs)
+			storage_release("/sdcard");
 		return;
 	}
 
@@ -164,6 +175,9 @@ static void v_flash(int argc, char **argv)
 	}
 	target_unlock();
 	fclose(f);
+
+	if (have_fs)
+		storage_release("/sdcard"); // hand the disk back to the USB host
 
 	if (ok)
 		out("flash ok: %u seg, %lu bytes, entry 0x%08lx", r.segments, (unsigned long)r.bytes,
@@ -264,6 +278,7 @@ static void v_help(void)
 	out("mem <a> <n>  hexdump memory");
 	out("halt run step poll  run ctrl");
 	out("reset       reset core/nRST");
+	out("usbmode dual|msc  USB mode");
 	out("== monitor ==");
 	out("swd_scan [id]  scan SWD");
 	out("jtag_scan   scan JTAG");
@@ -279,6 +294,41 @@ static void v_help(void)
 	out("version     fw version");
 	out("morse       morse error");
 	out("help all = full native list");
+}
+
+static void v_usbmode(int argc, char **argv)
+{
+	if (argc < 2) {
+		nvs_handle_t h;
+		uint8_t v = 0;
+		if (nvs_open("bmp", NVS_READONLY, &h) == ESP_OK) {
+			nvs_get_u8(h, "usbmode", &v);
+			nvs_close(h);
+		}
+		out("usb mode: %s", v == 1 ? "cdc+msc" : "dual-cdc");
+		out("usage: usbmode dual|msc");
+		return;
+	}
+	uint8_t want;
+	if (!strcmp(argv[1], "msc"))
+		want = 1;
+	else if (!strcmp(argv[1], "dual"))
+		want = 0;
+	else {
+		out("usage: usbmode dual|msc");
+		return;
+	}
+	nvs_handle_t h;
+	if (nvs_open("bmp", NVS_READWRITE, &h) != ESP_OK) {
+		out("nvs open failed");
+		return;
+	}
+	nvs_set_u8(h, "usbmode", want);
+	nvs_commit(h);
+	nvs_close(h);
+	out("usb mode -> %s, rebooting...", want ? "cdc+msc" : "dual-cdc");
+	vTaskDelay(pdMS_TO_TICKS(400));
+	esp_restart();
 }
 
 // --- dispatch --------------------------------------------------------------
@@ -314,6 +364,8 @@ bool ui_debug_dispatch(const char *line)
 		v_regs();
 	else if (!strcmp(v, "mem"))
 		v_mem(argc, argv);
+	else if (!strcmp(v, "usbmode"))
+		v_usbmode(argc, argv);
 	else if (!strcmp(v, "reset")) {
 		if (!cur_target)
 			return false; // no target: let monitor `reset` pulse nRST

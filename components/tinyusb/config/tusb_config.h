@@ -60,7 +60,7 @@ extern "C" {
 #endif
 
 #ifndef CONFIG_ESPUSB_MSC
-#define CONFIG_ESPUSB_MSC 0
+#define CONFIG_ESPUSB_MSC 1
 #endif
 
 #ifndef CONFIG_ESPUSB_HID

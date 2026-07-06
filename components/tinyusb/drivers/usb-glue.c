@@ -3,6 +3,7 @@
 #include <esp_mac.h>
 #include "dap-link/dap-link-descriptors.h"
 #include "dual-cdc/dual-cdc-descriptors.h"
+#include "cdc-msc/cdc-msc-descriptors.h"
 #include "usb-glue.h"
 
 #define TAG "usb-glue"
@@ -27,6 +28,12 @@ const USBDevice usb_device[] = {
             .desc_device = (uint8_t const*)&blackmagic_desc_device,
             .desc_config = blackmagic_desc_fs_configuration,
             .desc_string_cb = blackmagic_descriptor_string_cb,
+        },
+    [USBDeviceTypeCdcMsc] =
+        {
+            .desc_device = (uint8_t const*)&cdcmsc_desc_device,
+            .desc_config = cdcmsc_desc_fs_configuration,
+            .desc_string_cb = cdcmsc_descriptor_string_cb,
         },
 };
 
@@ -150,8 +157,9 @@ uint16_t const* tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
 }
 
 uint8_t const* tud_descriptor_bos_cb(void) {
-    // return NULL;
-    return dap_link_desc_bos;
+    if(usb_device_type == USBDeviceTypeDapLink)
+        return dap_link_desc_bos;
+    return NULL; // no WebUSB/MS-OS BOS for CDC/MSC modes
 }
 
 bool tud_vendor_control_xfer_cb(
@@ -217,6 +225,11 @@ void tud_cdc_rx_cb(uint8_t interface) {
                 callback_cdc_receive();
                 break;
             }
+        } else if(usb_device_type == USBDeviceTypeCdcMsc) {
+            if(interface == 0) { // single CDC = GDB
+                callback_gdb_receive();
+                break;
+            }
         }
 
         tud_cdc_n_read_flush(interface);
@@ -233,6 +246,10 @@ void tud_cdc_line_state_cb(uint8_t interface, bool dtr, bool rts) {
     } else if(usb_device_type == USBDeviceTypeDapLink) {
         if(interface == DapCDCTypeUART) {
             callback_cdc_line_state(dtr, rts);
+        }
+    } else if(usb_device_type == USBDeviceTypeCdcMsc) {
+        if(interface == 0) {
+            callback_gdb_line_state(dtr, rts);
         }
     }
 }
@@ -340,6 +357,7 @@ esp_err_t usb_glue_init(USBDeviceType device_type) {
         usb_glue_set_serial_number(mac, 6);
         dap_link_set_serial_number(usb_glue_get_serial_number());
         blackmagic_set_serial_number(usb_glue_get_serial_number());
+        cdcmsc_set_serial_number(usb_glue_get_serial_number());
         strncpy(dap_serial_number, usb_glue_get_serial_number(), sizeof(dap_serial_number) - 1);
         dap_serial_number[sizeof(dap_serial_number) - 1] = '\0';
         ESP_LOGI(TAG, "Serial number: %s", usb_glue_get_serial_number());
@@ -447,7 +465,7 @@ size_t usb_glue_cdc_receive(uint8_t* buf, size_t len) {
 }
 
 void usb_glue_gdb_send(const uint8_t* buf, size_t len, bool flush) {
-    if(usb_device_type == USBDeviceTypeDualCDC) {
+    if(usb_device_type == USBDeviceTypeDualCDC || usb_device_type == USBDeviceTypeCdcMsc) {
         tud_cdc_n_write(BlackmagicCDCTypeGDB, buf, len);
         if(flush) {
             tud_cdc_n_write_flush(BlackmagicCDCTypeGDB);

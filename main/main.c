@@ -20,6 +20,8 @@
 
 #include "target_lock.h"
 #include "sdcard.h"
+#include "storage.h"
+#include <nvs_flash.h>
 
 #if defined(CONFIG_BOARD_CARDPUTER)
 #include "ui.h"
@@ -84,12 +86,24 @@ void app_main(void)
 
     ESP_LOGI(TAG, "start");
 
+    // NVS is needed for the persisted USB-mode flag (dual-CDC vs CDC+MSC).
+    esp_err_t nvs_err = nvs_flash_init();
+    if(nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+
     gdb_glue_init();
 
     display_init();
 
     led_init();
     led_set_green(255);
+
+    // Mount the internal "storage" FAT partition so USB-MSC can expose it to
+    // the host. Must happen before usb_init() brings the MSC interface up.
+    if (!storage_init("storage"))
+        ESP_LOGW(TAG, "internal storage unavailable; USB-MSC drive disabled");
 
     usb_init();
 

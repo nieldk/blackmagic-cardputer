@@ -7,6 +7,7 @@
 typedef enum {
     USBDeviceTypeDapLink,
     USBDeviceTypeDualCDC,
+    USBDeviceTypeCdcMsc,
 } USBDeviceType;
 
 /***** Common *****/
