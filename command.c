@@ -25,6 +25,7 @@
  * This file implements a basic command interpreter for GDB 'monitor' commands.
  */
 
+#include "sdkconfig.h"  /* CONFIG_BOARD_CARDPUTER */
 #include "general.h"
 #include "platform.h"
 #include "exception.h"
@@ -61,7 +62,7 @@ static bool cmd_swd_scan(target_s *target, int argc, const char **argv);
 static bool cmd_emulate(target_s *t, int argc, const char **argv);
 static bool cmd_auto_scan(target_s *t, int argc, const char **argv);
 static bool cmd_frequency(target_s *t, int argc, const char **argv);
-#if defined(BOARD_CARDPUTER)
+#if defined(CONFIG_BOARD_CARDPUTER)
 static bool cmd_swd_pinout(target_s *t, int argc, const char **argv);
 #endif
 static bool cmd_targets(target_s *t, int argc, const char **argv);
@@ -99,7 +100,7 @@ const command_s cmd_list[] = {
 	{"swdp_scan", cmd_swd_scan, "Deprecated: use swd_scan instead"},
 	{"emulate", cmd_emulate, "Stand up an emulated STM32F103 target (no pins)"},
 	{"auto_scan", cmd_auto_scan, "Automatically scan all chain types for devices"},
-#if defined(BOARD_CARDPUTER)
+#if defined(CONFIG_BOARD_CARDPUTER)
 	{"swd_pinout", cmd_swd_pinout, "Brute-force SWD pinout scan across Grove pins: [pin1 pin2 ...]"},
 #endif
 	{"frequency", cmd_frequency, "set minimum high and low times: [FREQ]"},
@@ -268,7 +269,7 @@ bool cmd_swd_scan(target_s *target, int argc, const char **argv)
 	if (platform_target_voltage())
 		gdb_outf("Target voltage: %s\n", platform_target_voltage());
 
-#if defined(BOARD_CARDPUTER)
+#if defined(CONFIG_BOARD_CARDPUTER)
 	/* Auto-detect SWDIO/SWCLK ordering across the two Grove pins.
 	 * If the cable is plugged in reversed, swap them silently so the
 	 * user never needs to care which wire landed on which pin. */
@@ -749,7 +750,7 @@ static bool cmd_heapinfo(target_s *t, int argc, const char **argv)
 }
 
 
-#if defined(BOARD_CARDPUTER)
+#if defined(CONFIG_BOARD_CARDPUTER)
 /*
  * Brute-force SWD pinout scanner for Cardputer.
  *
@@ -797,4 +798,4 @@ static bool cmd_swd_pinout(target_s *t, int argc, const char **argv)
     gdb_outf("  IDCODE = 0x%08x\n", result.idcode);
     return true;
 }
-#endif /* BOARD_CARDPUTER */
+#endif /* CONFIG_BOARD_CARDPUTER */
