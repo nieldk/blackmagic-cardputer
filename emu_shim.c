@@ -89,6 +89,12 @@ static uint32_t ap_reg_read(uint16_t reg)
 			g_tar += size;
 		break;
 	}
+	case 0x10U: /* BD0 */
+	case 0x14U: /* BD1 */
+	case 0x18U: /* BD2 */
+	case 0x1CU: /* BD3 - Banked Data: word at (TAR window aligned) + 4n */
+		g_posted = emu_target_load((g_tar & ~0xFU) + (reg - 0x10U), 4U);
+		break;
 	case 0xF4U: /* CFG  */
 		g_posted = EMU_AP_CFG;
 		break;
@@ -124,6 +130,12 @@ static void ap_reg_write(uint16_t reg, uint32_t value)
 			g_tar += size;
 		break;
 	}
+	case 0x10U: /* BD0 */
+	case 0x14U: /* BD1 */
+	case 0x18U: /* BD2 */
+	case 0x1CU: /* BD3 - Banked Data write: word at (TAR window) + 4n */
+		emu_target_store((g_tar & ~0xFU) + (reg - 0x10U), value, 4U);
+		break;
 	default:
 		break;
 	}
