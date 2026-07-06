@@ -81,10 +81,14 @@ static uint32_t ap_reg_read(uint16_t reg)
 		g_posted = g_tar;
 		break;
 	case 0x0CU: /* DRW  */
-		g_posted = emu_target_read_word(g_tar);
+	{
+		const uint32_t size = csw_access_size();
+		const uint32_t shift = 8U * (g_tar & (4U - size));
+		g_posted = emu_target_load(g_tar, size) << shift;
 		if (csw_autoinc())
-			g_tar += csw_access_size();
+			g_tar += size;
 		break;
+	}
 	case 0xF4U: /* CFG  */
 		g_posted = EMU_AP_CFG;
 		break;
@@ -111,10 +115,15 @@ static void ap_reg_write(uint16_t reg, uint32_t value)
 		g_tar = value;
 		break;
 	case 0x0CU: /* DRW */
-		emu_target_write_word(g_tar, value);
+	{
+		const uint32_t size = csw_access_size();
+		const uint32_t shift = 8U * (g_tar & (4U - size));
+		const uint32_t lane = (value >> shift) & (size >= 4U ? 0xFFFFFFFFU : ((1U << (size * 8U)) - 1U));
+		emu_target_store(g_tar, lane, size);
 		if (csw_autoinc())
-			g_tar += csw_access_size();
+			g_tar += size;
 		break;
+	}
 	default:
 		break;
 	}
