@@ -65,9 +65,9 @@ uint8_t const cdcmsc_desc_hs_configuration[] = {
 static char *cdcmsc_string_desc[] = {
     (char[]){0x09, 0x04},       // 0: English (0x0409)
     "Niel Nielsen",             // 1: Manufacturer
-    "Blackmagic CardPuter MSC", // 2: Product
+    "Blackmagic CardPuter", // 2: Product
     "blackmagic",               // 3: Serial (overwritten)
-    "Blackmagic GDB",           // 4: CDC Interface
+    "Blackmagic MSC",           // 4: CDC Interface
     "BMP Storage",              // 5: MSC Interface
 };
 
