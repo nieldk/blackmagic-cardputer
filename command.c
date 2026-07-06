@@ -25,6 +25,7 @@
  * This file implements a basic command interpreter for GDB 'monitor' commands.
  */
 
+#include <inttypes.h>
 #include "sdkconfig.h"  /* CONFIG_BOARD_CARDPUTER */
 #include "general.h"
 #include "platform.h"
@@ -795,7 +796,7 @@ static bool cmd_swd_pinout(target_s *t, int argc, const char **argv)
     gdb_out("SWD device found!\n");
     gdb_outf("  SWDIO = GPIO%d\n", result.swdio);
     gdb_outf("  SWCLK = GPIO%d\n", result.swclk);
-    gdb_outf("  IDCODE = 0x%08x\n", result.idcode);
+    gdb_outf("  IDCODE = 0x%08" PRIx32 "\n", result.idcode);
     return true;
 }
 #endif /* CONFIG_BOARD_CARDPUTER */
