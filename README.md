@@ -31,6 +31,9 @@ monitor command in the REPL, if the target requires connect-under-reset.
 - **Standalone debugger/flasher**: Attach to a target, flash an `.elf`/`.bin` from the
   microSD, read registers and memory, and control run state, all without a host. See
   [Standalone debugging and flashing](#standalone-debugging-and-flashing-no-host)
+- **Emulated target**: `monitor emulate` registers a synthetic STM32F103 that BMP's own
+  ADIv5 stack enumerates with no pins driven — exercise the probe/attach/flash paths and
+  the REPL with no target hardware attached. See [Emulated target](#emulated-target-no-hardware)
 - **Auto pin detection**: `swd_scan` automatically tries both Grove pin orderings before
   connecting — no need to care which wire landed on SWDIO vs SWCLK
 - **Scrollable history**: 50-line scrollback buffer, navigate with `Fn+;` (back) and
@@ -47,6 +50,7 @@ help           Display help for monitor commands
 jtag_scan      Scan JTAG chain for devices
 swd_scan       Scan SWD interface for devices: [TARGET_ID]
 swdp_scan      Deprecated: use swd_scan instead
+emulate        Stand up an emulated STM32F103 target (no pins)
 auto_scan      Automatically scan all chain types for devices
 frequency      Set minimum high and low times: [FREQ]
 targets        Display list of available targets
@@ -97,6 +101,41 @@ run
 `flash` auto-detects ELF vs raw binary from the file header. Progress and the final
 `segments / bytes / entry` summary print to the scrollback and the COM port 2 mirror.
 
+## Emulated target (no hardware)
+
+`monitor emulate` stands up a synthetic **STM32F1 medium density** target inside the
+firmware — no SWD pins driven, nothing wired to the Grove port. BMP's own ADIv5 stack
+enumerates it exactly as it would a real chip: DP power-up, single AP scan, ROM-table
+walk, `cortexm_probe`, then `stm32f1_probe`. It's handy for exercising the
+probe/attach/flash/run-control paths, the REPL, and host-GDB connectivity on the bench
+with no target hardware present.
+
+```
+emulate                # register one emulated STM32F1 medium density target
+attach 1               # attaches as: STM32F1 medium density / M3
+regs
+mem 0x08000000 16      # SP=0x20005000, reset=0x08000101, then 0xffffffff
+```
+
+It also works over host GDB — `monitor emulate` then `attach 1` from your GDB session.
+`emulate` and a real `swd_scan` are mutually exclusive: only one debug port lives at a
+time, so run one or the other.
+
+What it is and isn't:
+
+- The core is always reported **halted**; there is no instruction execution. It is a
+  transport/enumeration model, not a CPU simulator.
+- Only the first **1 KiB** each of flash and SRAM is backed (seeded with a plausible
+  vector table). Beyond that, flash reads `0xffffffff` and SRAM reads `0x0`.
+- The flash controller (FPEC) accepts the unlock sequence and completes erase/program
+  instantly (`BSY` never asserts); writes land in the backed window only.
+- No NVIC / interrupt model.
+
+The implementation lives in `blackmagic-fw/src/target/emu_target.c` (the STM32F103 memory
+and CoreSight register model) and `emu_shim.c` (the ADIv5 DP/AP transport, with posted-read
+semantics matching `firmware_swdp_read`). Both are kept at the repo root and copied into
+the submodule at build time, like the other patched files.
+
 ## microSD
 
 Firmware images are read from a FAT-formatted microSD, mounted at `/sdcard` at boot.
@@ -115,6 +154,9 @@ simply unavailable — everything else (probe, REPL, host GDB) works unchanged.
 nRF51/nRF52, STM32F1/F4/G0/H5/H7/L0/L4/MP15, RP2040, SAMD/SAM3x/SAM4L/SAMx5x,
 LPC11xx/15xx/17xx/40xx/43xx/546xx/55xx, Kinetis, EFM32, iMX-RT, Renesas RA/RZ,
 RISC-V (RV32/RV64), nRF91, and more, see `blackmagic-fw/src/target/` for the full list.
+
+An emulated STM32F1 medium density target is also available with no hardware, see
+[Emulated target](#emulated-target-no-hardware).
 
 ## Build requirements
 
@@ -140,9 +182,12 @@ idf.py -D SDKCONFIG_DEFAULTS=sdkconfig.defaults.cardputer build
 Both commands must receive `-D SDKCONFIG_DEFAULTS=sdkconfig.defaults.cardputer`. Running
 `set-target` without it writes stock defaults that silently override the Cardputer config.
 
-The patched `gdb_packet.c` and `command.c` are included in the repo root and copied
-automatically into the `blackmagic-fw` submodule during the build. No manual patching
-required after `git submodule update --init --recursive`.
+The patched `gdb_packet.c` and `command.c`, along with the emulated-target sources
+`emu_target.c` / `emu_target.h` / `emu_shim.c` / `emu_shim.h`, are kept in the repo root
+and copied automatically into the `blackmagic-fw` submodule during the build. No manual
+patching required after `git submodule update --init --recursive`. Because the copy runs
+at configure time, if you edit any of these repo-root files, run `idf.py reconfigure`
+(or `rm -rf build`) before building so the fresh copy is picked up.
 
 ## Flash
 
@@ -193,6 +238,9 @@ flow control set to **None**.
 - SWD only, JTAG wiring not brought out to the Grove port
 - Keyboard Fn/Ctrl layers not decoded, only Fn+;/Fn+. scroll shortcuts are handled
 - RTT and semihosting compiled in but untested
+- `monitor emulate` is an enumeration/transport model, not a CPU simulator: the core
+  reads as permanently halted, only the first 1 KiB each of flash/SRAM is backed, and
+  FPEC operations complete instantly
 - SD pins default to documented Cardputer values, confirm for your unit and set
   `SDCARD_SHARED_BUS` if the card shares the display SPI bus
 
