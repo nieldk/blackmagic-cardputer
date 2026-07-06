@@ -111,7 +111,15 @@ static uint32_t rom_read(uint32_t off)
 	}
 }
 
-/* ---- SCS / Cortex-M3 debug block ---------------------------------------- */
+/* ---- SCS / Cortex-M3 debug block ---------------------------------------- *
+ * Core registers are transferred via DCRSR (select + direction) and DCRDR
+ * (data), exactly as cortexm.c drives them. regnum encoding: 0..15 = r0..r15
+ * (13=sp, 14=lr, 15=pc), 0x10 = xPSR, 0x11 = MSP, 0x12 = PSP, 0x14 = the
+ * packed CONTROL/FAULTMASK/BASEPRI/PRIMASK special register.               */
+#define CORE_REG_COUNT 0x18U
+static uint32_t g_core_reg[CORE_REG_COUNT];
+#define DCRSR_REGWnR 0x00010000U
+
 static uint32_t scs_read(uint32_t off)
 {
 	if (off >= 0xFD0U && off <= 0xFFCU)
@@ -125,7 +133,7 @@ static uint32_t scs_read(uint32_t off)
 		return 0x00030003U;
 	case 0xDF4U: /* DCRSR */
 		return g_dcrsr;
-	case 0xDF8U: /* DCRDR */
+	case 0xDF8U: /* DCRDR - holds the selected register's value after a read */
 		return g_dcrdr;
 	case 0xDFCU: /* DEMCR */
 		return g_demcr;
@@ -142,10 +150,18 @@ static void scs_write(uint32_t off, uint32_t value)
 	case 0xDF0U:
 		g_dhcsr = value;
 		break;
-	case 0xDF4U:
+	case 0xDF4U: { /* DCRSR: perform the register transfer */
 		g_dcrsr = value;
+		const uint32_t regnum = value & 0x7fU;
+		if (regnum < CORE_REG_COUNT) {
+			if (value & DCRSR_REGWnR) /* write direction: DCRDR -> reg */
+				g_core_reg[regnum] = g_dcrdr;
+			else /* read direction: reg -> DCRDR */
+				g_dcrdr = g_core_reg[regnum];
+		}
 		break;
-	case 0xDF8U:
+	}
+	case 0xDF8U: /* DCRDR */
 		g_dcrdr = value;
 		break;
 	case 0xDFCU:
@@ -349,4 +365,13 @@ void emu_target_reset(void)
 	g_flash_sr = 0;
 	g_flash_ar = 0;
 	g_flash_unlocked = false;
+
+	/* Seed a plausible halted-at-reset core state. GDB / cortexm may
+	 * overwrite these (e.g. pc after `load`) via the DCRSR/DCRDR path. */
+	memset(g_core_reg, 0, sizeof(g_core_reg));
+	g_core_reg[13] = 0x20005000U; /* sp   = top of SRAM         */
+	g_core_reg[14] = 0xFFFFFFFFU; /* lr                          */
+	g_core_reg[15] = 0x08000100U; /* pc   = reset handler (even) */
+	g_core_reg[0x10] = 0x01000000U; /* xPSR = Thumb (T) bit set  */
+	g_core_reg[0x11] = 0x20005000U; /* MSP                        */
 }
