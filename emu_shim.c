@@ -56,6 +56,23 @@ static uint32_t ap_reg_read(uint16_t reg)
 {
 	/* Return the previously posted value, then post the new one. */
 	uint32_t ret = g_posted;
+
+	/* Only apsel 0 is populated. Every other AP reads as absent so the
+	 * DP scan (adiv5.c:952) stops after 8 invalid APs instead of
+	 * registering a target at all 256 apsel values. adiv5_new_ap treats
+	 * BASE==0xffffffff or IDR==0 as "no AP here". */
+	if ((uint8_t)(g_select >> 24U) != 0U) {
+		switch (reg) {
+		case 0xF8U: /* BASE - not present */
+			g_posted = 0xFFFFFFFFU;
+			break;
+		default: /* IDR invalid, everything else zero */
+			g_posted = 0U;
+			break;
+		}
+		return ret;
+	}
+
 	switch (reg) {
 	case 0x00U: /* CSW  */
 		g_posted = g_csw | ADIV5_AP_CSW_DBGSWENABLE;
