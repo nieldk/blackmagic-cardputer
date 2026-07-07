@@ -40,6 +40,18 @@ static bool csw_autoinc(void)
 	return (g_csw & ADIV5_AP_CSW_ADDRINC_MASK) == ADIV5_AP_CSW_ADDRINC_SINGLE;
 }
 
+/* Advance TAR after a DRW access, matching real MEM-AP silicon: the
+ * auto-increment is only guaranteed on the low 10 bits, so it wraps inside
+ * the current 1KB page. Crossing a page needs an explicit TAR rewrite by
+ * the debugger. Modelling the wrap (instead of a linear g_tar += size) is
+ * what lets a client that forgets the boundary rewrite fail here the same
+ * way it would on hardware, rather than silently reading correct data. */
+static void tar_autoinc(uint32_t size)
+{
+	if (csw_autoinc())
+		g_tar = (g_tar & ~0x3FFU) | ((g_tar + size) & 0x3FFU);
+}
+
 /* CTRL/STAT read: reflect requested power-up as acknowledged. */
 static uint32_t ctrlstat_value(void)
 {
@@ -85,8 +97,7 @@ static uint32_t ap_reg_read(uint16_t reg)
 		const uint32_t size = csw_access_size();
 		const uint32_t shift = 8U * (g_tar & (4U - size));
 		g_posted = emu_target_load(g_tar, size) << shift;
-		if (csw_autoinc())
-			g_tar += size;
+		tar_autoinc(size);
 		break;
 	}
 	case 0x10U: /* BD0 */
@@ -126,8 +137,7 @@ static void ap_reg_write(uint16_t reg, uint32_t value)
 		const uint32_t shift = 8U * (g_tar & (4U - size));
 		const uint32_t lane = (value >> shift) & (size >= 4U ? 0xFFFFFFFFU : ((1U << (size * 8U)) - 1U));
 		emu_target_store(g_tar, lane, size);
-		if (csw_autoinc())
-			g_tar += size;
+		tar_autoinc(size);
 		break;
 	}
 	case 0x10U: /* BD0 */
