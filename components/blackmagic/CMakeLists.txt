@@ -87,6 +87,7 @@ set(BM_OVERRIDES
 
 set(BM_INCLUDE
     ${BM_DIR}/src/include
+    libopencm3-shim   # stub libopencm3 headers (ESP32 uses TinyUSB; no real libopencm3)
     ${BM_DIR}/src/platforms/common
     ${BM_DIR}/src/target
     ${PLATFORM_DIR}

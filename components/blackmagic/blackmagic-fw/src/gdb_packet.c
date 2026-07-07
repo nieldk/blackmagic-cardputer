@@ -335,8 +335,21 @@ void gdb_putpacket_f(const char *const fmt, ...)
 	va_end(ap);
 }
 
+#include "platform.h"
+
+#if defined(PLATFORM_HAS_LOCAL_UI)
+volatile bool ui_capture_active = false;
+void ui_capture_write(const char *str);
+#endif
+
 void gdb_out(const char *const buf)
 {
+        #if defined(PLATFORM_HAS_LOCAL_UI)
+            if (ui_capture_active) {
+                ui_capture_write(buf);
+                return;
+            }
+        #endif
 	const size_t buf_len = strlen(buf);
 	char *hexdata = calloc(1, 2U * buf_len + 1U);
 	if (!hexdata)
