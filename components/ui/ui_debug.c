@@ -125,6 +125,17 @@ static void v_detach(void)
 	out("detached");
 }
 
+/* Resolve a user file argument: a bare name maps to /sdcard/<name>; an explicit
+ * path (starting with '/') is used verbatim. Both flash and read live on the
+ * internal /sdcard drive, so callers can just say "b.elf" / "dump.bin". */
+static const char *sdpath(const char *in, char *buf, size_t buflen)
+{
+	if (in[0] == '/')
+		return in;
+	snprintf(buf, buflen, "/sdcard/%s", in);
+	return buf;
+}
+
 static void v_flash(int argc, char **argv)
 {
 	if (!cur_target) {
@@ -132,16 +143,18 @@ static void v_flash(int argc, char **argv)
 		return;
 	}
 	if (argc < 2) {
-		out("usage: flash <path> [hexaddr]");
+		out("usage: flash <file> [hexaddr]");
 		return;
 	}
+	char pathbuf[128];
+	const char *path = sdpath(argv[1], pathbuf, sizeof pathbuf);
 	// Borrow the internal storage FS back from the USB-MSC host for this read.
 	// Harmless if no MSC/host: acquire mounts the internal partition at /sdcard.
 	bool have_fs = storage_acquire("/sdcard");
 
-	FILE *f = fopen(argv[1], "rb");
+	FILE *f = fopen(path, "rb");
 	if (!f) {
-		out("open %s failed", argv[1]);
+		out("open %s failed", path);
 		if (have_fs)
 			storage_release("/sdcard");
 		return;
@@ -369,18 +382,20 @@ static void v_read(int argc, char **argv)
 		return;
 	}
 	if (argc < 2 || argc == 3) {
-		out("usage: read <path> [<hexaddr> <len>]");
+		out("usage: read <file> [<hexaddr> <len>]");
 		out("  no range = dump whole flash");
 		return;
 	}
 	const bool whole_flash = (argc < 4);
+	char pathbuf[128];
+	const char *path = sdpath(argv[1], pathbuf, sizeof pathbuf);
 
 	/* Borrow the internal FS back from the USB-MSC host for the write. */
 	bool have_fs = storage_acquire("/sdcard");
 
-	FILE *f = fopen(argv[1], "wb");
+	FILE *f = fopen(path, "wb");
 	if (!f) {
-		out("open %s failed", argv[1]);
+		out("open %s failed", path);
 		if (have_fs)
 			storage_release("/sdcard");
 		return;
@@ -407,7 +422,7 @@ static void v_read(int argc, char **argv)
 				break;
 			uint32_t start = (uint32_t)strtoul(sp + 7, NULL, 0);
 			uint32_t length = (uint32_t)strtoul(lp + 8, NULL, 0);
-			out("flash 0x%08lx +%lu -> %s", (unsigned long)start, (unsigned long)length, argv[1]);
+			out("flash 0x%08lx +%lu -> %s", (unsigned long)start, (unsigned long)length, path);
 			ok = v_read_range(f, start, length, &total);
 			++regions;
 			pos = lp;
@@ -423,7 +438,7 @@ static void v_read(int argc, char **argv)
 			out("zero length");
 			ok = false;
 		} else {
-			out("read 0x%08lx +%lu -> %s", (unsigned long)addr, (unsigned long)len, argv[1]);
+			out("read 0x%08lx +%lu -> %s", (unsigned long)addr, (unsigned long)len, path);
 			ok = v_read_range(f, addr, len, &total);
 		}
 	}
@@ -433,7 +448,7 @@ static void v_read(int argc, char **argv)
 		storage_release("/sdcard"); // hand the disk back to the USB host
 
 	if (ok)
-		out("read ok: %lu bytes -> %s", (unsigned long)total, argv[1]);
+		out("read ok: %lu bytes -> %s", (unsigned long)total, path);
 }
 
 // --- dispatch --------------------------------------------------------------
