@@ -89,7 +89,6 @@ set(BM_INCLUDE
     ${BM_DIR}/src/include
     ${BM_DIR}/src/platforms/common
     ${BM_DIR}/src/target
-    ${BM_DIR}/deps/libopencm3/include
     ${PLATFORM_DIR}
 )
 
