@@ -82,14 +82,18 @@ falls through to `command_process()`, so they coexist with every monitor command
 ```
 attach [N]          Attach to target N from the last scan (default 1)
 detach              Detach the current target
-flash <path> [hex]  Program an ELF or .bin from the internal drive / SD. For a raw
+flash <file> [hex]  Program an ELF or .bin from the internal drive / SD. For a raw
                     .bin, [hex] is the load base (default 0x08000000). ELF uses each
                     segment's LMA.
 regs                Dump core registers
 mem <hex> <len>     Hex-dump len bytes of target memory (len capped at 256)
-read <path> [<hex> <len>]  Save target memory to a raw .bin on the internal
+read <file> [<hex> <len>]  Save target memory to a raw .bin on the internal
                     drive / SD. With no range, dumps the whole flash (walks the
                     target's flash map); with <hexaddr> <len>, dumps that range.
+
+A bare filename for flash / read is taken relative to the internal drive, so
+`flash b.elf` means `/sdcard/b.elf` and `read dump.bin` means `/sdcard/dump.bin`.
+An absolute path (starting with `/`) is used as-is.
 reset               Reset the attached core, or pulse nRST if none attached
 halt                Request halt
 run                 Resume execution
@@ -104,7 +108,7 @@ Typical standalone flow, all from the keyboard:
 swd_scan                       # populate the target list
 connect_rst enable             # only if the target needs it (no NRST wired)
 attach 1                       # attach to target 1
-flash /sdcard/firmware.elf     # erase, program, verify
+flash firmware.elf             # erase, program, verify
 reset
 run
 ```
@@ -140,7 +144,7 @@ usbmode msc                      # on the Cardputer keyboard; it reboots
 # back on the Cardputer keyboard:
 emulate                          # or swd_scan for a real target
 attach 1
-flash /sdcard/firmware.elf       # reads the file you just dropped
+flash firmware.elf               # reads the file you just dropped
 usbmode dual                     # optional: back to dual-CDC
 ```
 
@@ -148,7 +152,7 @@ The reverse also works — pull a target's flash *off* the device:
 
 ```
 attach 1
-read /sdcard/dump.bin              # whole flash, sized to the chip
+read dump.bin                      # whole flash, sized to the chip
 usbmode msc                        # if not already; dump.bin is now on the drive
 ```
 
