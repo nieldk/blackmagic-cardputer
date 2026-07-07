@@ -9,7 +9,6 @@
 #include <string.h>
 
 #include "target.h"               // blackmagic-fw target API
-#include "target_internal.h"      // cur_target->flash list (whole-flash read)
 #include "gdb_main.h"             // extern target_s *cur_target;
 #include "ui.h"                   // ui_capture_write()
 #include "target_lock.h"          // target_lock()/target_unlock()
@@ -391,14 +390,31 @@ static void v_read(int argc, char **argv)
 	bool ok = true;
 
 	if (whole_flash) {
-		const target_flash_s *fl = cur_target->flash;
-		if (!fl) {
-			out("no flash map for this target");
+		/* Walk the target's flash regions via the public memory-map XML
+		 * (avoids reaching into target_internal.h). Regions look like:
+		 *   <memory type="flash" start="0x8000000" length="0x20000"> ... */
+		static char mapbuf[4096];
+		if (!target_mem_map(cur_target, mapbuf, sizeof mapbuf)) {
+			out("no memory map for this target");
 			ok = false;
 		}
-		for (; fl && ok; fl = fl->next) {
-			out("flash 0x%08lx +%lu -> %s", (unsigned long)fl->start, (unsigned long)fl->length, argv[1]);
-			ok = v_read_range(f, (uint32_t)fl->start, (uint32_t)fl->length, &total);
+		int regions = 0;
+		const char *pos = mapbuf;
+		while (ok && (pos = strstr(pos, "type=\"flash\"")) != NULL) {
+			const char *sp = strstr(pos, "start=\"");
+			const char *lp = strstr(pos, "length=\"");
+			if (!sp || !lp)
+				break;
+			uint32_t start = (uint32_t)strtoul(sp + 7, NULL, 0);
+			uint32_t length = (uint32_t)strtoul(lp + 8, NULL, 0);
+			out("flash 0x%08lx +%lu -> %s", (unsigned long)start, (unsigned long)length, argv[1]);
+			ok = v_read_range(f, start, length, &total);
+			++regions;
+			pos = lp;
+		}
+		if (ok && regions == 0) {
+			out("no flash regions in map");
+			ok = false;
 		}
 	} else {
 		uint32_t addr = (uint32_t)strtoul(argv[2], NULL, 16);
