@@ -35,8 +35,8 @@ monitor command in the REPL, if the target requires connect-under-reset.
   Full shift layer supported — hold `Aa` for uppercase and symbols including `_`, `!`,
   `@`, `#`, `$`, `%`, etc.
 - **Standalone debugger/flasher**: Attach to a target, flash an `.elf`/`.bin` from the
-  internal drive or microSD, read registers and memory, and control run state, all
-  without a host. See [Standalone debugging and flashing](#standalone-debugging-and-flashing-no-host)
+  internal drive or microSD, read registers and memory, dump a target's flash back to a
+  file, and control run state, all without a host. See [Standalone debugging and flashing](#standalone-debugging-and-flashing-no-host)
 - **Emulated target**: `monitor emulate` registers a synthetic STM32F1 that BMP's own
   ADIv5 stack enumerates with no pins driven — probe, attach, flash, verify, and read
   registers with no target hardware attached. See [Emulated target](#emulated-target-no-hardware)
@@ -87,6 +87,9 @@ flash <path> [hex]  Program an ELF or .bin from the internal drive / SD. For a r
                     segment's LMA.
 regs                Dump core registers
 mem <hex> <len>     Hex-dump len bytes of target memory (len capped at 256)
+read <path> [<hex> <len>]  Save target memory to a raw .bin on the internal
+                    drive / SD. With no range, dumps the whole flash (walks the
+                    target's flash map); with <hexaddr> <len>, dumps that range.
 reset               Reset the attached core, or pulse nRST if none attached
 halt                Request halt
 run                 Resume execution
@@ -139,6 +142,14 @@ emulate                          # or swd_scan for a real target
 attach 1
 flash /sdcard/firmware.elf       # reads the file you just dropped
 usbmode dual                     # optional: back to dual-CDC
+```
+
+The reverse also works — pull a target's flash *off* the device:
+
+```
+attach 1
+read /sdcard/dump.bin              # whole flash, sized to the chip
+usbmode msc                        # if not already; dump.bin is now on the drive
 ```
 
 Notes:
