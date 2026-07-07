@@ -1,0 +1,520 @@
+name: build PR
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the main branch
+  pull_request:
+    branches: ['main']
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# This controls the concurrency level for the jobs and how it's calculated
+concurrency:
+  group: ${{ github.workflow }}-${{ github.job }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a job for each supported OS in the form `build-<os>`
+  build-linux:
+    # The type of runner that the job will run on
+    runs-on: ${{ matrix.os.id }}
+
+    # We define a matrix of GCCs and OSes to build against so we can cover a variety of
+    # suitable compilation environments and early discover issues. The `build-and-upload`
+    # workflow contains an extended set.
+    strategy:
+      matrix:
+        os:
+          - {id: ubuntu-20.04, name: focal}
+        compiler:
+          - 'clang-15'
+          - 'gcc-11'
+        arm-compiler:
+          - '12.2.Rel1'
+      fail-fast: false
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Build a suitable runtime environment
+      - name: Runtime environment
+        shell: bash
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        # The GITHUB_WORKSPACE step here fixes https://github.com/actions/runner/issues/2058 which is an ongoing issue.
+        run: |
+          echo "$GITHUB_WORKSPACE=`pwd`" >> $GITHUB_ENV
+
+      # Install a suitable system compiler for the build
+      - name: Setup system GCC
+        if: startsWith(matrix.compiler, 'gcc')
+        shell: bash
+        run: |
+          CXX=${CC/#gcc/g++}
+          sudo apt-add-repository ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install $CC $CXX
+          echo "CC=$CC" >> $GITHUB_ENV
+          echo "CXX=$CXX" >> $GITHUB_ENV
+        env:
+          CC: ${{ matrix.compiler }}
+      - name: Setup system Clang
+        if: startsWith(matrix.compiler, 'clang')
+        shell: bash
+        run: |
+          wget https://apt.llvm.org/llvm-snapshot.gpg.key
+          sudo apt-key add llvm-snapshot.gpg.key
+          rm llvm-snapshot.gpg.key
+          sudo apt-add-repository "deb https://apt.llvm.org/${{ matrix.os.name }}/ llvm-toolchain-${{ matrix.os.name }}${CC/#clang/} main"
+          sudo apt-get update
+          sudo apt-get install $CC
+          CXX=${CC/#clang/clang++}
+          echo "CC=$CC" >> $GITHUB_ENV
+          echo "CXX=$CXX" >> $GITHUB_ENV
+        env:
+          CC: ${{ matrix.compiler }}
+        working-directory: ${{ runner.temp }}
+
+      # Setup and use a suitable ARM GCC for the firmware
+      - name: Setup ARM GCC
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ matrix.arm-compiler }}
+
+      # Record the versions of all the tools used in the build
+      - name: Version tools
+        shell: bash
+        run: |
+          $CC --version
+          $CXX --version
+          arm-none-eabi-gcc --version
+          make --version
+
+      # Checkout the repository and branch to build under the default location
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Build the firmware for all platform variants and BMDA in BMP-only mode
+      - name: Build all platform variants firmware and BMP only BMDA
+        run: make all_platforms HOSTED_BMP_ONLY=1
+
+      - name: Clean
+        run: make clean
+
+      # Build all the firmware variants that have more than 128kiB of Flash, with RTT enabled
+      - name: Build firmware with RTT
+        run: |
+          make PROBE_HOST=96b_carbon ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=blackpill-f401cc ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=blackpill-f401ce ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=blackpill-f411ce ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=f3 ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=f4discovery ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=hydrabus ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=launchpad-icdi ENABLE_RTT=1
+          make -C src clean
+          make PROBE_HOST=stlinkv3 ENABLE_RTT=1
+
+      - name: Clean
+        run: make clean
+
+      # Having tested the BMP-only BMDA builds, now install the deps for full BMDA
+      - name: Install BMDA dependencies
+        run: sudo apt-get -y install libusb-dev libftdi1-dev libhidapi-dev
+
+      # And build that full binary
+      - name: Build full BMDA binary
+        run: make PROBE_HOST=hosted HOSTED_BMP_ONLY=0
+
+  build-windows-msvc:
+    # Name the job more appropriately so we can tell which VS version is in use
+    name: 'build-msvc (meson, ${{ matrix.os }})'
+    # The type of runner that the job will run on
+    runs-on: ${{ matrix.os }}
+
+    # Set the shell so run steps will execute inside the native environment
+    defaults:
+      run:
+        shell: pwsh
+
+    # We define a matrix of compilers and OS versions to build against so we can cover a variety of
+    # suitable compilation environments and early discover issues. The `build-and-upload`
+    # workflow contains an extended set.
+    strategy:
+      matrix:
+        os:
+          - windows-2019
+          - windows-2022
+      fail-fast: false
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Make the selected OS's MSVC available to the environment
+      - name: Setup compiler
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86_64
+
+      # Build a suitable runtime environment
+      - name: Runtime environment
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        # The GITHUB_WORKSPACE step here fixes https://github.com/actions/runner/issues/2058 which is an ongoing issue.
+        run: |
+          echo "GITHUB_WORKSPACE=$(pwd)" >> $GITHUB_ENV
+
+      # Install and setup a suitable Meson + Ninja
+      - name: Setup Meson + Ninja
+        run: |
+          python3 -m pip install --upgrade pip setuptools wheel
+          python3 -m pip install meson ninja
+
+      # Record the versions of all the tools used in the build
+      - name: Version tools
+        run: |
+          cl /Bv
+          meson --version
+          ninja --version
+
+      # Checkout the repository and branch to build under the default location
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Build the default BMDA configuration
+      - name: Build full BMDA
+        run: |
+          meson setup build
+          meson compile -C build
+
+  build-windows-mingw:
+    # Name the job more appropriately so we can tell which windows and which MinGW ABI is in use
+    name: 'build-mingw (${{ matrix.os }}, ${{ matrix.sys.abi }})'
+    # The type of runner that the job will run on
+    runs-on: ${{ matrix.os }}
+
+    # Set the shell so run steps will execute from in msys2 correctly by default
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    # We define a matrix of compilers and OS versions to build against so we can cover a variety of
+    # suitable compilation environments and early discover issues. The `build-and-upload`
+    # workflow contains an extended set.
+    strategy:
+      matrix:
+        os:
+          - windows-2022
+        sys:
+          - {abi: ucrt64, env: ucrt-x86_64, compiler: gcc}
+          - {abi: clang64, env: clang-x86_64, compiler: clang}
+      fail-fast: false
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Install a suitable system compiler for the build
+      - name: Use MinGW from MSYS
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{matrix.sys.abi}}
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-${{matrix.sys.env}}-toolchain
+
+      # Build a suitable runtime environment
+      - name: Runtime environment
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        # The GITHUB_WORKSPACE step here fixes https://github.com/actions/runner/issues/2058 which is an ongoing issue.
+        run: |
+          echo "$GITHUB_WORKSPACE=`pwd`" >> $GITHUB_ENV
+
+      # Configure the system toolchain environment
+      - name: Setup system GCC
+        if: matrix.sys.compiler == 'gcc'
+        run: |
+          CXX=${CC/#gcc/g++}
+          echo "CC=$CC" >> $GITHUB_ENV
+          echo "CXX=$CXX" >> $GITHUB_ENV
+        env:
+          CC: ${{ matrix.sys.compiler }}
+      - name: Setup system Clang
+        if: matrix.sys.compiler == 'clang'
+        run: |
+          CXX=${CC/#clang/clang++}
+          echo "CC=$CC" >> $GITHUB_ENV
+          echo "CXX=$CXX" >> $GITHUB_ENV
+        env:
+          CC: ${{ matrix.sys.compiler }}
+
+      # Record the versions of all the tools used in the build
+      - name: Version tools
+        shell: bash
+        run: |
+          $CC --version
+          make --version
+
+      # Checkout the repository and branch to build under the default location
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Build BMDA in BMP-only mode
+      - name: Build BMP only BMDA
+        run: make PROBE_HOST=hosted HOSTED_BMP_ONLY=1
+
+      - name: Clean
+        run: make -C src clean
+
+      # Install the dependencies needed for a full BMDA build
+      - name: Install BMDA dependencies
+        run: |
+          pacman --noconfirm -S mingw-w64-${{matrix.sys.env}}-libusb mingw-w64-${{matrix.sys.env}}-libftdi \
+            mingw-w64-${{matrix.sys.env}}-hidapi
+
+      # And build that full binary
+      - name: Build full BMDA
+        run: make PROBE_HOST=hosted HOSTED_BMP_ONLY=0
+
+  # This workflow tests the experimental Meson build system
+  build-linux-meson:
+    # Name the job more appropriately so we can tell which windows and which MinGW ABI is in use
+    name: 'build-linux (${{ matrix.os.name }}, ${{ matrix.probe }})'
+    # The type of runner that the job will run on
+    runs-on: ${{ matrix.os.id }}
+
+    # We define a matrix of GCCs and OSes to build against so we can cover a variety of
+    # suitable compilation environments and early discover issues. The `build-and-upload`
+    # workflow contains an extended set.
+    strategy:
+      matrix:
+        os:
+          - {id: ubuntu-20.04, name: focal}
+        arm-compiler:
+          - '12.2.Rel1'
+        probe:
+          - '96b_carbon'
+          - 'bluepill'
+          - 'f072'
+          - 'f3'
+          - 'f4discovery'
+          - 'hydrabus'
+          - 'launchpad-icdi'
+          - 'native'
+          - 'stlink'
+          - 'stlinkv3'
+          - 'swlink'
+      fail-fast: false
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Build a suitable runtime environment
+      - name: Runtime environment
+        shell: bash
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        # The GITHUB_WORKSPACE step here fixes https://github.com/actions/runner/issues/2058 which is an ongoing issue.
+        run: |
+          echo "$GITHUB_WORKSPACE=`pwd`" >> $GITHUB_ENV
+
+      # Setup and use a suitable ARM GCC for the firmware
+      - name: Setup ARM GCC
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ matrix.arm-compiler }}
+
+      # Install and setup a suitable Meson + Ninja
+      - name: Setup Meson + Ninja
+        run: |
+          sudo python3 -m pip install --upgrade pip setuptools wheel
+          sudo python3 -m pip install meson ninja
+        working-directory: ${{ runner.temp }}
+
+      # Install BMDA's deps (libftdi1, hidapi-hidraw)
+      - name: Install BMDA dependencies
+        run: sudo apt-get -y install libftdi1-dev libhidapi-dev
+
+      # Record the versions of all the tools used in the build
+      - name: Version tools
+        run: |
+          arm-none-eabi-gcc --version
+          meson --version
+          ninja --version
+
+      # Checkout the repository and branch to build under the default location
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      # Build the firmware for all platform variants (currently available)
+      - name: Build
+        run: |
+          meson setup build --cross-file cross-file/${{ matrix.probe }}.ini --werror
+          meson compile -C build
+
+  build-macos:
+    # Name the job more appropriately so we can tell which Xcode/macOS version is in use
+    name: 'build-macos (${{ matrix.os }})'
+    # The type of runner that the job will run on
+    runs-on: ${{ matrix.os }}
+
+    # Set the shell so run steps will execute inside the native environment
+    defaults:
+      run:
+        shell: bash
+
+    # We define a matrix of compilers and OS versions to build against so we can cover a variety of
+    # suitable compilation environments and early discover issues. The `build-and-upload`
+    # workflow contains an extended set.
+    strategy:
+      matrix:
+        os:
+          - macos-latest
+          - macos-11
+      fail-fast: false
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Build a suitable runtime environment
+      - name: Runtime environment
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        # The GITHUB_WORKSPACE step here fixes https://github.com/actions/runner/issues/2058 which is an ongoing issue.
+        run: |
+          echo "GITHUB_WORKSPACE=`pwd`" >> $GITHUB_ENV
+
+      # Install and setup a suitable Meson + Ninja
+      - name: Setup Meson + Ninja
+        run: |
+          brew install meson ninja
+
+      # Install BMDA's non wrapped deps (libftdi1)
+      - name: Install BMDA dependencies
+        run: brew install libftdi
+
+      # Record the versions of all the tools used in the build
+      - name: Version tools
+        run: |
+          cc --version  || true
+          ld --version || true
+          meson --version
+          ninja --version
+
+      # Checkout the repository and branch to build under the default location
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Build the default BMDA configuration
+      - name: Build full BMDA
+        run: |
+          meson setup build
+          meson compile -C build
+
+  build-macos-homebrew:
+    # Name the job more appropriately so we can tell which GCC version is in use
+    name: 'build-macos (${{ matrix.compiler }})'
+
+    # The type of runner that the job will run on
+    runs-on: macos-latest
+
+    # Set the shell so run steps will execute inside the native environment
+    defaults:
+      run:
+        shell: bash
+
+    # We define a matrix of compilers and OS versions to build against so we can cover a variety of
+    # suitable compilation environments and early discover issues. The `build-and-upload`
+    # workflow contains an extended set.
+    strategy:
+      matrix:
+        compiler:
+          - gcc@11
+          - gcc@12
+          - gcc@13 # Don't use 'gcc', the symlink is versioned -- see below
+      fail-fast: false
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Build a suitable runtime environment
+      - name: Runtime environment
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        # The GITHUB_WORKSPACE step here fixes https://github.com/actions/runner/issues/2058 which is an ongoing issue.
+        run: |
+          echo "$GITHUB_WORKSPACE=`pwd`" >> $GITHUB_ENV
+
+      # Install a suitable system compiler for the build
+      - name: Setup Homebrew GCC
+        run: |
+          brew install ${{ matrix.compiler }}
+          CC=${COMPILER/@/-}
+          CXX=${CC/#gcc/g++}
+          echo "CC=$CC" >> $GITHUB_ENV
+          echo "CXX=$CXX" >> $GITHUB_ENV
+        env:
+          COMPILER: ${{ matrix.compiler }}
+
+      # Install and setup a suitable Meson + Ninja
+      - name: Setup Meson + Ninja
+        run: |
+          brew install meson ninja
+
+      # Install BMDA's deps since they cannot be compiled with GCC
+      - name: Install BMDA dependencies
+        run: brew install libusb libftdi hidapi 
+
+      # Record the versions of all the tools used in the build
+      - name: Version tools
+        shell: bash
+        run: |
+          $CC --version
+          $CXX --version
+          meson --version
+          ninja --version
+
+      # Checkout the repository and branch to build under the default location
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # Build the default BMDA configuration
+      - name: Build full BMDA
+        run: |
+          meson setup build
+          meson compile -C build
+
+  size-diff:
+    runs-on: ubuntu-20.04
+
+    steps:
+      # Setup and use a suitable ARM GCC for the firmware
+      - name: Setup ARM GCC
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '12.2.Rel1'
+
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+
+      - name: Build base
+        run: make -C base > base/build.log
+
+      - name: Build head
+        run: make -C head > head/build.log
+
+      - name: Diff
+        run: head/scripts/diff_size.py base/build.log head/build.log

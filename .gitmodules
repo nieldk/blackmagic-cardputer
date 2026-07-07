@@ -1,6 +1,3 @@
-[submodule "components/blackmagic/blackmagic-fw"]
-	path = components/blackmagic/blackmagic-fw
-	url = https://github.com/blackmagic-debug/blackmagic
 [submodule "components/tinyusb/tinyusb"]
 	path = components/tinyusb/tinyusb
 	url = https://github.com/espressif/tinyusb
