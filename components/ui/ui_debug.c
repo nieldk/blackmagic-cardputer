@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "target.h"               // blackmagic-fw target API
+#include "target_internal.h"      // cur_target->flash list (whole-flash read)
 #include "gdb_main.h"             // extern target_s *cur_target;
 #include "ui.h"                   // ui_capture_write()
 #include "target_lock.h"          // target_lock()/target_unlock()
@@ -276,6 +277,7 @@ static void v_help(void)
 	out("flash <f> [hex]  elf/bin, SD");
 	out("regs        dump registers");
 	out("mem <a> <n>  hexdump memory");
+	out("read <f> [<a> <n>]  save flash/mem to file");
 	out("halt run step poll  run ctrl");
 	out("reset       reset core/nRST");
 	out("usbmode dual|msc  USB mode");
@@ -331,6 +333,93 @@ static void v_usbmode(int argc, char **argv)
 	esp_restart();
 }
 
+/* Read [addr, addr+len) from the target into f, chunked. Updates *total. */
+static bool v_read_range(FILE *f, uint32_t addr, uint32_t len, uint32_t *total)
+{
+	static uint8_t buf[1024];
+	uint32_t done = 0, next_report = 16384;
+	while (done < len) {
+		uint32_t chunk = len - done;
+		if (chunk > sizeof buf)
+			chunk = sizeof buf;
+		target_lock();
+		int rc = target_mem_read(cur_target, buf, addr + done, chunk);
+		target_unlock();
+		if (rc) {
+			out("read failed @0x%08lx", (unsigned long)(addr + done));
+			return false;
+		}
+		if (fwrite(buf, 1, chunk, f) != chunk) {
+			out("write failed @%lu", (unsigned long)(*total + done));
+			return false;
+		}
+		done += chunk;
+		if (done >= next_report && done < len) {
+			out("  %lu / %lu", (unsigned long)done, (unsigned long)len);
+			next_report += 16384;
+		}
+	}
+	*total += done;
+	return true;
+}
+
+static void v_read(int argc, char **argv)
+{
+	if (!cur_target) {
+		out("attach first");
+		return;
+	}
+	if (argc < 2 || argc == 3) {
+		out("usage: read <path> [<hexaddr> <len>]");
+		out("  no range = dump whole flash");
+		return;
+	}
+	const bool whole_flash = (argc < 4);
+
+	/* Borrow the internal FS back from the USB-MSC host for the write. */
+	bool have_fs = storage_acquire("/sdcard");
+
+	FILE *f = fopen(argv[1], "wb");
+	if (!f) {
+		out("open %s failed", argv[1]);
+		if (have_fs)
+			storage_release("/sdcard");
+		return;
+	}
+
+	uint32_t total = 0;
+	bool ok = true;
+
+	if (whole_flash) {
+		const target_flash_s *fl = cur_target->flash;
+		if (!fl) {
+			out("no flash map for this target");
+			ok = false;
+		}
+		for (; fl && ok; fl = fl->next) {
+			out("flash 0x%08lx +%lu -> %s", (unsigned long)fl->start, (unsigned long)fl->length, argv[1]);
+			ok = v_read_range(f, (uint32_t)fl->start, (uint32_t)fl->length, &total);
+		}
+	} else {
+		uint32_t addr = (uint32_t)strtoul(argv[2], NULL, 16);
+		uint32_t len = (uint32_t)strtoul(argv[3], NULL, 0);
+		if (len == 0) {
+			out("zero length");
+			ok = false;
+		} else {
+			out("read 0x%08lx +%lu -> %s", (unsigned long)addr, (unsigned long)len, argv[1]);
+			ok = v_read_range(f, addr, len, &total);
+		}
+	}
+
+	fclose(f);
+	if (have_fs)
+		storage_release("/sdcard"); // hand the disk back to the USB host
+
+	if (ok)
+		out("read ok: %lu bytes -> %s", (unsigned long)total, argv[1]);
+}
+
 // --- dispatch --------------------------------------------------------------
 
 bool ui_debug_dispatch(const char *line)
@@ -360,6 +449,8 @@ bool ui_debug_dispatch(const char *line)
 		v_detach();
 	else if (!strcmp(v, "flash"))
 		v_flash(argc, argv);
+	else if (!strcmp(v, "read"))
+		v_read(argc, argv);
 	else if (!strcmp(v, "regs"))
 		v_regs();
 	else if (!strcmp(v, "mem"))
