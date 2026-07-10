@@ -332,7 +332,16 @@ flow control set to **None**.
 - SD pins default to documented Cardputer values, confirm for your unit and set
   `SDCARD_SHARED_BUS` if the card shares the display SPI bus
 
-## Credits
+## Credits & lineage
 
-Based on [litui/blackmagic-esp32s3](https://github.com/litui/blackmagic-esp32s3) and
-the [Black Magic Debug](https://black-magic.org) project.
+- [Black Magic Debug](https://black-magic.org) — the BMP firmware itself (`blackmagic-fw` submodule)
+- [flipperdevices/blackmagic-esp32-s2](https://github.com/flipperdevices/blackmagic-esp32-s2) —
+  original ESP32 port; the USB glue, CDC descriptors, DAP-Link driver, and UART
+  components originate here
+- [litui/blackmagic-esp32s3](https://github.com/litui/blackmagic-esp32s3) — ESP32-S3
+  rework this port is directly based on
+
+## License
+
+GPL-3.0, inherited from the Black Magic Debug project and the Flipper Devices port.
+See [LICENSE](LICENSE).
