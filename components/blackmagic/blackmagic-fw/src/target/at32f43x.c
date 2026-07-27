@@ -72,6 +72,10 @@ static bool at32f43_mass_erase(target_s *target);
 #define AT32F43_SERIES_4K          0x70084000U
 #define AT32F43_SERIES_2K          0x70083000U
 
+/* User system data (USD) - EOPB0 holds the SRAM / zero-wait-Flash split selector */
+#define AT32F43x_USD_EOPB0           0x1fffc010U /* USD_BASE 0x1fffc000 + eopb0 offset 0x10 */
+#define AT32F43x_EOPB0_SRAM_CFG_MASK 0x0007U     /* EOPB0[2:0] */
+
 typedef struct at32f43_flash {
 	target_flash_s target_flash;
 	target_addr_t bank_split; /* Address of first page of bank 2 */
@@ -108,9 +112,9 @@ static void at32f43_add_flash(target_s *const target, const target_addr_t addr, 
 static bool at32f43_detect(target_s *target, const uint16_t part_id)
 {
 	/*
-	 * AT32F435 EOPB0 ZW/NZW split reconfiguration unsupported,
-	 * assuming default split ZW=256 SRAM=384.
-	 * AT32F437 also have a working "EMAC" (Ethernet MAC)
+	 * The ZW/NZW split is a wait-state property of the main Flash array and does
+	 * not change what is programmable at 0x08000000, so only the SRAM map below
+	 * tracks EOPB0. AT32F437 additionally has a working "EMAC" (Ethernet MAC).
 	 */
 	uint32_t flash_size_bank1 = 0;
 	uint32_t flash_size_bank2 = 0;
@@ -185,18 +189,25 @@ static bool at32f43_detect(target_s *target, const uint16_t part_id)
 	} else
 		at32f43_add_flash(target, 0x08000000, flash_size_bank1, sector_size, 0, AT32F43x_FLASH_BANK1_REG_OFFSET);
 
-	// SRAM1 (64KB) can be remapped to 0x10000000.
-	target_add_ram(target, 0x20000000, 64U * 1024U);
-	// SRAM2 (384-64=320 KB default).
-	target_add_ram(target, 0x20010000, 320U * 1024U);
 	/*
-	 * SRAM total is adjustable between 128 KB and 512 KB (max).
-	 * Out of 640 KB SRAM present on silicon, at least 128 KB are always
-	 * dedicated to "zero-wait-state Flash". ZW region is limited by
-	 * specific part flash capacity (for 256, 448 KB) or at 512 KB.
-	 * AT32F435ZMT default EOPB0=0xffff05fa,
-	 * EOPB[0:2]=0b010 for 384 KB SRAM + 256 KB zero-wait-state flash.
+	 * SRAM total is configurable via EOPB0[2:0], trading against the shared
+	 * zero-wait-state Flash pool. SRAM1 is a fixed 64 KiB block at 0x20000000
+	 * (remappable to 0x10000000); SRAM2 is the contiguous remainder at
+	 * 0x20010000. Decode the selector so the map is correct on a part whose
+	 * split was moved off the 384 KiB factory default.
+	 * Encoding (ArteryTek BSP flash_usd_eopb0_type): field N -> (512 - 64*N) KiB
+	 * for N = 0..6 (512,448,384,320,256,192,128); any other value -> default.
 	 */
+	const uint32_t eopb0 = target_mem_read32(target, AT32F43x_USD_EOPB0);
+	const uint8_t sram_cfg = eopb0 & AT32F43x_EOPB0_SRAM_CFG_MASK;
+	uint32_t sram_total_kb = 384U; /* EOPB0[2:0]=0b010 factory default */
+	if (sram_cfg <= 6U)
+		sram_total_kb = 512U - 64U * sram_cfg;
+	/* SRAM1: fixed 64 KiB, remappable to 0x10000000 */
+	target_add_ram(target, 0x20000000, 64U * 1024U);
+	/* SRAM2: remainder of the configured SRAM */
+	target_add_ram(target, 0x20010000, (sram_total_kb - 64U) * 1024U);
+
 	target->driver = "AT32F435";
 	target->mass_erase = at32f43_mass_erase;
 	return true;
