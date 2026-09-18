@@ -101,14 +101,14 @@ bool serial_flash_cmd(int argc, char **argv)
 	}
 	uint32_t image_size = (uint32_t)((fsz + 3) & ~3L); // pad up to 4 bytes
 
-	// 1. Hardware Port Initialization using loader_esp32_config_t
+    // 1. Hardware Port Initialization using loader_esp32_config_t
 	loader_esp32_config_t config = {
 		.baud_rate = SER_INIT_BAUD,
-		.uart_port = SER_UART_NUM,
-		.tx_pin = SER_TX_PIN,
-		.rx_pin = SER_RX_PIN,
-		.reset_pin = SER_RESET_PIN,
-		.boot_pin = SER_BOOT_PIN,
+		.uart_num = SER_UART_NUM,
+		.uart_tx_pin = SER_TX_PIN,
+		.uart_rx_pin = SER_RX_PIN,
+		.reset_trigger_pin = SER_RESET_PIN,
+		.gpio0_trigger_pin = SER_BOOT_PIN,
 	};
 
 	if (loader_port_esp32_init(&config) != ESP_LOADER_SUCCESS) {
