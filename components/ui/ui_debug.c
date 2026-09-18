@@ -14,6 +14,7 @@
 #include "target_lock.h"          // target_lock()/target_unlock()
 #include "bmp_standalone_load.h"  // bmp_load_elf()/bmp_load_bin()
 #include "storage.h"              // storage_acquire()/storage_release() (USB-MSC internal FS)
+#include "serial_flash.h"        // serial_flash_cmd()
 #include <nvs.h>
 #include <esp_system.h>          // esp_restart()
 #include <freertos/FreeRTOS.h>
@@ -287,6 +288,7 @@ static void v_help(void)
 	out("attach [N]  attach tgt (def 1)");
 	out("detach      detach target");
 	out("flash <f> [hex]  elf/bin, SD");
+	out("serialflash <f> [off]  UART ESP");
 	out("regs        dump registers");
 	out("mem <a> <n>  hexdump memory");
 	out("read <f> [<a> <n>]  save flash/mem to file");
@@ -480,6 +482,8 @@ bool ui_debug_dispatch(const char *line)
 		v_detach();
 	else if (!strcmp(v, "flash"))
 		v_flash(argc, argv);
+	else if (!strcmp(v, "serialflash"))
+		serial_flash_cmd(argc, argv);
 	else if (!strcmp(v, "read"))
 		v_read(argc, argv);
 	else if (!strcmp(v, "regs"))
