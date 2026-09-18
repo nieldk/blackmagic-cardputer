@@ -102,6 +102,7 @@ bool serial_flash_cmd(int argc, char **argv)
 	uint32_t image_size = (uint32_t)((fsz + 3) & ~3L); // pad up to 4 bytes
 
     // 1. Hardware Port Initialization using loader_esp32_config_t
+	// 1. Hardware Port Initialization using loader_esp32_config_t
 	loader_esp32_config_t config = {
 		.baud_rate = SER_INIT_BAUD,
 		.uart_num = SER_UART_NUM,
