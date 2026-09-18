@@ -252,7 +252,7 @@ the drive won't appear.
 ## Build
 
 ```sh
-git clone https://codeberg.org/nieldk/blackmagic-cardputer.git
+git clone https://github.com/nieldk/blackmagic-cardputer.git
 cd blackmagic-cardputer
 git submodule update --init --recursive
 rm -f sdkconfig
