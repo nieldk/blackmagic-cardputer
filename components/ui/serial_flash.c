@@ -19,7 +19,7 @@
 
 #include "driver/gpio.h"
 #include "esp_loader.h"
-#include "esp_loader_io.h"
+#include "loader_port.h"   // Standard port interface header for esp-serial-flasher
 
 #include "ui.h"           // ui_capture_write()
 #include "platform.h"     // TMS_PIN=G1/GPIO1, TCK_PIN=G2/GPIO2
@@ -103,7 +103,7 @@ bool serial_flash_cmd(int argc, char **argv)
 	uint32_t image_size = (uint32_t)((fsz + 3) & ~3L); // pad up to 4 bytes
 
 	// 1. Hardware Port Initialization
-	loader_port_esp32_config_t config = {
+	loader_port_config_t config = {
 		.baud_rate = SER_INIT_BAUD,
 		.uart_port = SER_UART_NUM,
 		.tx_pin = SER_TX_PIN,
@@ -112,7 +112,7 @@ bool serial_flash_cmd(int argc, char **argv)
 		.boot_pin = SER_BOOT_PIN,
 	};
 
-	if (loader_port_esp32_init(&config) != ESP_LOADER_SUCCESS) {
+	if (loader_port_init(&config) != ESP_LOADER_SUCCESS) {
 		slog("uart init failed");
 		fclose(f);
 		if (have_fs)
@@ -176,8 +176,8 @@ bool serial_flash_cmd(int argc, char **argv)
 
 done:
 	// 7. Cleanup & Release
-	loader_port_deinit();       // Replaces esp_loader_deinit(&loader)
-	release_grove_pins();       // Hand G1/G2 back for SWD
+	loader_port_deinit();
+	release_grove_pins();       // hand G1/G2 back for SWD
 	fclose(f);
 	if (have_fs)
 		storage_release("/sdcard");
