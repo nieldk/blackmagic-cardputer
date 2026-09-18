@@ -9,6 +9,7 @@
 // download mode by hand before running, or wire reset/boot to spare GPIOs
 // and set SER_RESET_PIN / SER_BOOT_PIN.
 
+#include "driver/uart.h"
 #include "serial_flash.h"
 
 #include <stdio.h>
