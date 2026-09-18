@@ -1,13 +1,6 @@
 // Standalone serial (UART ROM-bootloader) flasher for the Cardputer BMP.
 // Flashes an Espressif SoC over the Grove UART via espressif/esp-serial-flasher,
 // streaming the image from /sdcard. Parallels the SWD `flash` verb.
-//
-// Grove wiring (shared with the SWD pins):
-//   G1/GPIO1 = host TX -> target RX (U0RXD)
-//   G2/GPIO2 = host RX <- target TX (U0TXD)
-// No Grove pin is left for EN/RESET or IO0/BOOT, so put the target into
-// download mode by hand before running, or wire reset/boot to spare GPIOs
-// and set SER_RESET_PIN / SER_BOOT_PIN.
 
 #include "driver/uart.h"
 #include "serial_flash.h"
@@ -20,12 +13,11 @@
 #include "driver/gpio.h"
 #include "esp_loader.h"
 
-#if __has_include("loader_port.h")
-    #include "loader_port.h"
-#elif __has_include("esp32_port.h")
+// Port header for esp-serial-flasher on ESP-IDF targets
+#if __has_include("esp32_port.h")
     #include "esp32_port.h"
-#else
-    #include "esp_loader_io.h"
+#elif __has_include("loader_port.h")
+    #include "loader_port.h"
 #endif
 
 #include "ui.h"           // ui_capture_write()
@@ -109,8 +101,8 @@ bool serial_flash_cmd(int argc, char **argv)
 	}
 	uint32_t image_size = (uint32_t)((fsz + 3) & ~3L); // pad up to 4 bytes
 
-	// 1. Hardware Port Initialization
-	loader_port_config_t config = {
+	// 1. Hardware Port Initialization using loader_esp32_config_t
+	loader_esp32_config_t config = {
 		.baud_rate = SER_INIT_BAUD,
 		.uart_port = SER_UART_NUM,
 		.tx_pin = SER_TX_PIN,
@@ -119,7 +111,7 @@ bool serial_flash_cmd(int argc, char **argv)
 		.boot_pin = SER_BOOT_PIN,
 	};
 
-	if (loader_port_init(&config) != ESP_LOADER_SUCCESS) {
+	if (loader_port_esp32_init(&config) != ESP_LOADER_SUCCESS) {
 		slog("uart init failed");
 		fclose(f);
 		if (have_fs)
@@ -183,7 +175,7 @@ bool serial_flash_cmd(int argc, char **argv)
 
 done:
 	// 7. Cleanup & Release
-	loader_port_deinit();
+	loader_port_esp32_deinit();
 	release_grove_pins();       // hand G1/G2 back for SWD
 	fclose(f);
 	if (have_fs)
