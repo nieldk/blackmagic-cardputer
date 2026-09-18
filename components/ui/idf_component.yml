@@ -1,2 +1,2 @@
 dependencies:
-  espressif/esp-serial-flasher: "~1.11.0"
+  espressif/esp-serial-flasher: "~1.9.0"
