@@ -19,7 +19,14 @@
 
 #include "driver/gpio.h"
 #include "esp_loader.h"
-#include "loader_port.h"   // Standard port interface header for esp-serial-flasher
+
+#if __has_include("loader_port.h")
+    #include "loader_port.h"
+#elif __has_include("esp32_port.h")
+    #include "esp32_port.h"
+#else
+    #include "esp_loader_io.h"
+#endif
 
 #include "ui.h"           // ui_capture_write()
 #include "platform.h"     // TMS_PIN=G1/GPIO1, TCK_PIN=G2/GPIO2
