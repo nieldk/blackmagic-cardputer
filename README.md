@@ -202,11 +202,12 @@ the cable):
 Power the target separately. If `connect` fails, the two data wires are most likely
 swapped — swap G1/G2.
 
-**Entering download mode.** The Grove port has no spare pin for EN/RESET or IO0/BOOT, so
-the target is not reset into the bootloader automatically. Put it into download mode by
-hand first — hold BOOT/IO0 low, pulse EN/RESET, release BOOT — then run `serialflash`. If
-you wire reset/boot to spare GPIOs, set `SER_RESET_PIN` / `SER_BOOT_PIN` in
-`components/ui/serial_flash.c` for automatic entry.
+**Entering download mode.** esp-serial-flasher v1.9.0 configures the reset/boot pins as
+GPIO outputs unconditionally, so they must be valid GPIOs — `SER_RESET_PIN` / `SER_BOOT_PIN`
+in `components/ui/serial_flash.c` default to two unused Cardputer pins (GPIO17 / GPIO16).
+Wire them to the target's EN and IO0 for automatic download-mode entry. If you leave them
+unrouted, put the target into download mode by hand first — hold IO0 low, pulse EN, release
+IO0 — then run `serialflash`; the pulses on the unconnected pins are harmless.
 
 Typical flow, all from the keyboard:
 
@@ -388,8 +389,9 @@ flow control set to **None**.
 - SD pins default to documented Cardputer values, confirm for your unit and set
   `SDCARD_SHARED_BUS` if the card shares the display SPI bus
 - `serialflash` covers Espressif SoC targets only (upstream esp-serial-flasher lists
-  ESP8266/ESP32/S2/S3/C-series/P4, no STM32), shares the Grove pins with SWD, and needs
-  the target put into download mode by hand (no Grove pin for EN/BOOT)
+  ESP8266/ESP32/S2/S3/C-series/P4, no STM32) and shares the Grove pins with SWD;
+  esp-serial-flasher v1.9.0 needs valid reset/boot GPIOs, so those default to unused pins
+  (GPIO17/16) — wire them to EN/IO0 for auto download-entry, or enter download mode by hand
 
 ## Credits & lineage
 
