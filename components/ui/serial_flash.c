@@ -19,7 +19,7 @@
 
 #include "driver/gpio.h"
 #include "esp_loader.h"
-#include "esp32_port.h"   // esp32_port_t, esp32_uart_ops (managed component)
+#include "esp_loader_io.h"
 
 #include "ui.h"           // ui_capture_write()
 #include "platform.h"     // TMS_PIN=G1/GPIO1, TCK_PIN=G2/GPIO2
@@ -102,17 +102,17 @@ bool serial_flash_cmd(int argc, char **argv)
 	}
 	uint32_t image_size = (uint32_t)((fsz + 3) & ~3L); // pad up to 4 bytes
 
-	esp32_port_t port = {
-		.port.ops = &esp32_uart_ops,
+	// 1. Hardware Port Initialization
+	loader_port_esp32_config_t config = {
 		.baud_rate = SER_INIT_BAUD,
 		.uart_port = SER_UART_NUM,
-		.uart_tx_pin = SER_TX_PIN,
-		.uart_rx_pin = SER_RX_PIN,
+		.tx_pin = SER_TX_PIN,
+		.rx_pin = SER_RX_PIN,
 		.reset_pin = SER_RESET_PIN,
 		.boot_pin = SER_BOOT_PIN,
 	};
-	esp_loader_t loader;
-	if (esp_loader_init_serial(&loader, &port.port) != ESP_LOADER_SUCCESS) {
+
+	if (loader_port_esp32_init(&config) != ESP_LOADER_SUCCESS) {
 		slog("uart init failed");
 		fclose(f);
 		if (have_fs)
@@ -121,29 +121,28 @@ bool serial_flash_cmd(int argc, char **argv)
 	}
 
 	bool ok = false;
+
+	// 2. Connect to Target
 	esp_loader_connect_args_t ca = ESP_LOADER_CONNECT_DEFAULT();
-	if (esp_loader_connect(&loader, &ca) != ESP_LOADER_SUCCESS) {
+	if (esp_loader_connect(&ca) != ESP_LOADER_SUCCESS) {
 		slog("connect failed");
 		slog("hold BOOT/IO0 low, pulse EN, retry");
 		goto done;
 	}
-	slog("connected: chip %d", (int)esp_loader_get_target(&loader));
+	slog("connected: chip %d", (int)esp_loader_get_target());
 
-	// Best-effort speed-up; ignore if target/protocol refuses.
-	if (esp_loader_change_transmission_rate(&loader, SER_FAST_BAUD) == ESP_LOADER_SUCCESS)
+	// 3. Change Transmission Rate (Baud Rate)
+	if (esp_loader_change_transmission_rate(SER_FAST_BAUD) == ESP_LOADER_SUCCESS)
 		slog("baud -> %d", SER_FAST_BAUD);
 
-	esp_loader_flash_cfg_t cfg = {
-		.offset = offset,
-		.image_size = image_size,
-		.block_size = SER_BLOCK,
-	};
-	if (esp_loader_flash_start(&loader, &cfg) != ESP_LOADER_SUCCESS) {
+	// 4. Start Flash Process
+	if (esp_loader_flash_start(offset, image_size, SER_BLOCK) != ESP_LOADER_SUCCESS) {
 		slog("flash_start failed");
 		goto done;
 	}
 	slog("erased, prog 0x%08lx +%lu", (unsigned long)offset, (unsigned long)image_size);
 
+	// 5. Stream and Write Payload
 	static uint8_t buf[SER_BLOCK];
 	uint32_t sent = 0, next = 16384;
 	while (sent < image_size) {
@@ -153,7 +152,8 @@ bool serial_flash_cmd(int argc, char **argv)
 		size_t got = fread(buf, 1, want, f);
 		if (got < want)
 			memset(buf + got, 0xff, want - got); // pad tail
-		if (esp_loader_flash_write(&loader, &cfg, buf, want) != ESP_LOADER_SUCCESS) {
+
+		if (esp_loader_flash_write(buf, want) != ESP_LOADER_SUCCESS) {
 			slog("write failed @%lu", (unsigned long)sent);
 			goto done;
 		}
@@ -163,17 +163,21 @@ bool serial_flash_cmd(int argc, char **argv)
 			next += 16384;
 		}
 	}
-	if (esp_loader_flash_finish(&loader, &cfg) != ESP_LOADER_SUCCESS) {
+
+	// 6. Finish and Reset
+	bool reboot_target = true;
+	if (esp_loader_flash_finish(reboot_target) != ESP_LOADER_SUCCESS) {
 		slog("verify/finish failed");
 		goto done;
 	}
-	esp_loader_reset_target(&loader); // no-op if RESET pin is NC
+	esp_loader_reset_target(); // no-op if RESET pin is NC
 	slog("serialflash ok: %lu bytes @0x%08lx", (unsigned long)image_size, (unsigned long)offset);
 	ok = true;
 
 done:
-	esp_loader_deinit(&loader); // uninstalls the UART driver
-	release_grove_pins();       // hand G1/G2 back for SWD
+	// 7. Cleanup & Release
+	loader_port_deinit();       // Replaces esp_loader_deinit(&loader)
+	release_grove_pins();       // Hand G1/G2 back for SWD
 	fclose(f);
 	if (have_fs)
 		storage_release("/sdcard");
