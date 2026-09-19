@@ -37,6 +37,9 @@ monitor command in the REPL, if the target requires connect-under-reset.
 - **Standalone debugger/flasher**: Attach to a target, flash an `.elf`/`.bin` from the
   internal drive or microSD, read registers and memory, dump a target's flash back to a
   file, and control run state, all without a host. See [Standalone debugging and flashing](#standalone-debugging-and-flashing-no-host)
+- **Serial flasher (UART)**: `serialflash <file> [off]` flashes an Espressif SoC
+  target over the Grove UART via esp-serial-flasher, streaming the image from the
+  internal drive or microSD — no host. See [Serial flashing](#serial-flashing-uart-esp-targets)
 - **Emulated target**: `monitor emulate` registers a synthetic STM32F1 that BMP's own
   ADIv5 stack enumerates with no pins driven — probe, attach, flash, verify, and read
   registers with no target hardware attached. See [Emulated target](#emulated-target-no-hardware)
@@ -94,6 +97,7 @@ read <file> [<hex> <len>]  Save target memory to a raw .bin on the internal
 A bare filename for flash / read is taken relative to the internal drive, so
 `flash b.elf` means `/sdcard/b.elf` and `read dump.bin` means `/sdcard/dump.bin`.
 An absolute path (starting with `/`) is used as-is.
+serialflash <file> [off]   UART-flash an ESP SoC over Grove (see Serial flashing)
 reset               Reset the attached core, or pulse nRST if none attached
 halt                Request halt
 run                 Resume execution
@@ -168,6 +172,58 @@ Notes:
   is created and formatted empty on first boot; content persists across reboots.
 - Requires the 8 MB flash + custom partition table config (see
   [Build requirements](#build-requirements)); a `storage` partition must exist.
+
+## Serial flashing (UART, ESP targets)
+
+Alongside SWD, the Cardputer can flash an **Espressif SoC** target over the Grove port's
+UART, using Espressif's [esp-serial-flasher](https://github.com/espressif/esp-serial-flasher)
+to drive the target's ROM/stub bootloader. The image is streamed from `/sdcard` (internal
+USB drive or microSD), exactly like the SWD `flash` verb — no host.
+
+```
+serialflash <file> [hexoffset]
+```
+
+- `<file>` — a bare name is relative to the internal drive (`app.bin` -> `/sdcard/app.bin`);
+  an absolute path (starting with `/`) is used as-is.
+- `[hexoffset]` — flash offset for the image. Defaults to `0x10000`, but set it for what
+  you are writing: app `0x10000`, partition table `0x8000`, bootloader `0x0` (ESP32-S3/C3)
+  or `0x1000` (classic ESP32). A single combined ESP-IDF image goes at `0x0`.
+
+Wiring (Grove — the **same two pins as SWD**, so serial and SWD are mutually exclusive on
+the cable):
+
+| Grove pin | GPIO  | Target                       |
+| --------- | ----- | ---------------------------- |
+| G1        | GPIO1 | U0RXD (host TX -> target RX) |
+| G2        | GPIO2 | U0TXD (host RX <- target TX) |
+| GND       | GND   | GND                          |
+
+Power the target separately. If `connect` fails, the two data wires are most likely
+swapped — swap G1/G2.
+
+**Entering download mode.** esp-serial-flasher v1.9.0 configures the reset/boot pins as
+GPIO outputs unconditionally, so they must be valid GPIOs — `SER_RESET_PIN` / `SER_BOOT_PIN`
+in `components/ui/serial_flash.c` default to two unused Cardputer pins (GPIO17 / GPIO16).
+Wire them to the target's EN and IO0 for automatic download-mode entry. If you leave them
+unrouted, put the target into download mode by hand first — hold IO0 low, pulse EN, release
+IO0 — then run `serialflash`; the pulses on the unconnected pins are harmless.
+
+Typical flow, all from the keyboard:
+
+```
+# copy app.bin to /sdcard (usbmode msc, or microSD)
+# put the target into download mode
+serialflash app.bin 0x10000      # connect, erase, program, MD5-verify
+```
+
+On success: `serialflash ok: <bytes> @<offset>`. The command connects, prints the detected
+chip, tries 460800 baud, streams the image in 1 KB blocks, and verifies via MD5
+(`esp_loader_flash_finish`). On exit it hands G1/G2 back as plain GPIO, so **run `swd_scan`
+again before any SWD operation**.
+
+Requires the `espressif/esp-serial-flasher` managed component, pulled automatically by
+`components/ui/idf_component.yml`; run `idf.py reconfigure` after adding it.
 
 ## Emulated target (no hardware)
 
@@ -254,6 +310,7 @@ the drive won't appear.
 ```sh
 git clone https://github.com/nieldk/blackmagic-cardputer.git
 cd blackmagic-cardputer
+git checkout serial-flasher
 git submodule update --init --recursive
 rm -f sdkconfig
 rm -rf build
@@ -331,6 +388,10 @@ flow control set to **None**.
   halted and `run`/`step` don't advance code
 - SD pins default to documented Cardputer values, confirm for your unit and set
   `SDCARD_SHARED_BUS` if the card shares the display SPI bus
+- `serialflash` covers Espressif SoC targets only (upstream esp-serial-flasher lists
+  ESP8266/ESP32/S2/S3/C-series/P4, no STM32) and shares the Grove pins with SWD;
+  esp-serial-flasher v1.9.0 needs valid reset/boot GPIOs, so those default to unused pins
+  (GPIO17/16) — wire them to EN/IO0 for auto download-entry, or enter download mode by hand
 
 ## Credits & lineage
 
