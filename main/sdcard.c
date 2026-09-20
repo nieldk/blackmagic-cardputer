@@ -13,12 +13,14 @@ static sdmmc_card_t *s_card;
 #define SD_PIN_MISO 39
 #define SD_PIN_MOSI 14
 #define SD_PIN_CS   12
-// The SD and the ST7789 share SPI3_HOST on the Cardputer. If the display driver
-// already ran spi_bus_initialize(SPI3_HOST) (it does), set SDCARD_SHARED_BUS=1
-// so we only add the SD as a device on that bus instead of initialising it
-// again (which would fail with ESP_ERR_INVALID_STATE and drop the card).
-#define SD_SPI_HOST       SPI3_HOST
-#define SDCARD_SHARED_BUS 1
+// The microSD is on its OWN SPI bus, separate from the display: the ST7789 owns
+// SPI3_HOST (CONFIG_ESP32S3_SPI3_SELECTED, pins MOSI35/CLK36/CS37), while the SD
+// uses pins CLK40/MISO39/MOSI14/CS12. So give the SD a free host (SPI2) and let
+// it initialise that bus itself. Do NOT point this at SPI3_HOST - the display
+// already ran spi_bus_initialize() there and a second init returns
+// ESP_ERR_INVALID_STATE, dropping the card. Leave SDCARD_SHARED_BUS=0.
+#define SD_SPI_HOST       SPI2_HOST
+#define SDCARD_SHARED_BUS 0
 #define MOUNT_POINT "/sdcard"
 
 // Mount a physically-present microSD. No internal-flash fallback: when there is
