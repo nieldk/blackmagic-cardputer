@@ -10,10 +10,10 @@
  * Two things to check on the Cardputer:
  *   1. Pin numbers. The values in sdcard.c are the commonly documented M5Stack
  *      Cardputer microSD SPI pins, but verify against your unit's schematic.
- *   2. Bus sharing with the ST7789. The display is on SPI3_HOST already. If the
- *      SD shares that bus, set SDCARD_SHARED_BUS=1 in sdcard.c so it does NOT
- *      call spi_bus_initialize() again but mounts the SD as a device on the
- *      already-initialized host with its own CS.
+ *   2. Bus/host. The display owns SPI3_HOST; the SD has its own pins, so it runs
+ *      on a separate host (SPI2_HOST) with SDCARD_SHARED_BUS=0 in sdcard.c.
+ *      Do NOT put the SD on SPI3_HOST - the display already initialised that bus
+ *      and a second spi_bus_initialize() returns ESP_ERR_INVALID_STATE.
  */
 
 /* Mount a physically-present microSD at /sdcard. Returns false if no card is
