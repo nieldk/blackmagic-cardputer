@@ -1,6 +1,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include <esp_err.h>
 
 /*
  * microSD at /sdcard, plus raw block access so USB-MSC can expose the card.
@@ -31,3 +32,6 @@ int      sdcard_read_blocks(void *dst, uint32_t lba, uint32_t cnt);
 int      sdcard_write_blocks(const void *src, uint32_t lba, uint32_t cnt);
 uint32_t sdcard_block_size(void);    /* bytes per sector (typically 512) */
 uint32_t sdcard_block_count(void);   /* total sectors on the card */
+
+/* esp_err_t from the last sdcard_mount() attempt (for on-screen reporting). */
+esp_err_t sdcard_last_err(void);
