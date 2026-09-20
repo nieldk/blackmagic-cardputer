@@ -310,7 +310,6 @@ the drive won't appear.
 ```sh
 git clone https://github.com/nieldk/blackmagic-cardputer.git
 cd blackmagic-cardputer
-git checkout serial-flasher
 git submodule update --init --recursive
 rm -f sdkconfig
 rm -rf build
