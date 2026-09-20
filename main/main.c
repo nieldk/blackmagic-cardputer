@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -48,11 +49,8 @@ void gdb_application_thread(void* pvParameters) {
 
 void pins_init() {
     gpio_config_t io_conf;
-    // disable interrupt
     io_conf.intr_type = GPIO_PIN_INTR_DISABLE;
-    // set as output mode
     io_conf.mode = GPIO_MODE_OUTPUT;
-    // bit mask of the pins that you want to set
     io_conf.pin_bit_mask = (
         ((uint64_t)1 << SWCLK_PIN)
         | ((uint64_t)1 << SWDIO_PIN)
@@ -62,15 +60,9 @@ void pins_init() {
 #if NRST_PIN != -1
         | ((uint64_t)1 << NRST_PIN)
 #endif
-// #if LOG_TX_PIN != -1
-//         | ((uint64_t)1 << LOG_TX_PIN)
-// #endif
     );
-    // disable pull-down mode
     io_conf.pull_down_en = 0;
-    // disable pull-up mode
     io_conf.pull_up_en = 0;
-    // configure GPIO with the given settings
     gpio_config(&io_conf);
 
 #if TDI_PIN != -1
@@ -86,7 +78,6 @@ void app_main(void)
 
     ESP_LOGI(TAG, "start");
 
-    // NVS is needed for the persisted USB-mode flag (dual-CDC vs CDC+MSC).
     esp_err_t nvs_err = nvs_flash_init();
     if(nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
@@ -95,13 +86,18 @@ void app_main(void)
 
     gdb_glue_init();
 
-    display_init();
+    display_init();          // claims SPI3_HOST for the ST7789
 
     led_init();
     led_set_green(255);
 
-    // Mount the internal "storage" FAT partition so USB-MSC can expose it to
-    // the host. Must happen before usb_init() brings the MSC interface up.
+    // Auto-mount a microSD if present. Runs AFTER display_init (so the SD's own
+    // SPI2 bus is free of the display's SPI3) and BEFORE usb_init (so USB-MSC
+    // can expose the card). If no card, /sdcard falls back to the internal
+    // "storage" partition below.
+    bool sd_ok = sdcard_mount();
+
+    // Internal "storage" FAT partition for USB-MSC when there is no card.
     if (!storage_init("storage"))
         ESP_LOGW(TAG, "internal storage unavailable; USB-MSC drive disabled");
 
@@ -113,6 +109,19 @@ void app_main(void)
 
 #if defined(CONFIG_BOARD_CARDPUTER)
     ui_start();
+
+    // Report the SD result on the Cardputer screen (no boot serial needed).
+    {
+        char line[64];
+        if (sd_ok)
+            snprintf(line, sizeof line, "sd: mounted %lu MB\n",
+                     (unsigned long)(((uint64_t)sdcard_block_count() *
+                                      sdcard_block_size()) >> 20));
+        else
+            snprintf(line, sizeof line, "sd: no mount (%s)\n",
+                     esp_err_to_name(sdcard_last_err()));
+        ui_capture_write(line);
+    }
 #endif
 
     led_set_green(0);
