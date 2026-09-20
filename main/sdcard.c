@@ -4,9 +4,11 @@
 #include <sdmmc_cmd.h>
 #include <driver/sdspi_host.h>
 #include <driver/spi_common.h>
+#include <esp_err.h>
 static const char *TAG = "sdcard";
 
 static sdmmc_card_t *s_card;
+static esp_err_t s_last_err = ESP_OK;   // result of the last sdcard_mount()
 
 // >>> CONFIRM THESE. Documented M5Stack Cardputer microSD SPI pins. <<<
 #define SD_PIN_CLK  40
@@ -44,6 +46,7 @@ bool sdcard_mount(void)
 	err = spi_bus_initialize(SD_SPI_HOST, &bus, SDSPI_DEFAULT_DMA);
 	if (err != ESP_OK) {
 		ESP_LOGE(TAG, "spi_bus_initialize: %s", esp_err_to_name(err));
+		s_last_err = err;
 		return false;
 	}
 #endif
@@ -60,12 +63,14 @@ bool sdcard_mount(void)
 	err = esp_vfs_fat_sdspi_mount(MOUNT_POINT, &host, &slot, &mcfg, &s_card);
 	if (err != ESP_OK) {
 		ESP_LOGW(TAG, "no SD card (%s); using internal storage", esp_err_to_name(err));
+		s_last_err = err;
 		s_card = NULL;
 #if !SDCARD_SHARED_BUS
 		spi_bus_free(SD_SPI_HOST);
 #endif
 		return false;
 	}
+	s_last_err = ESP_OK;
 	ESP_LOGI(TAG, "mounted microSD at %s (%llu MB)",
 	         MOUNT_POINT, ((uint64_t)s_card->csd.capacity * s_card->csd.sector_size) >> 20);
 	return true;
@@ -96,3 +101,5 @@ int sdcard_write_blocks(const void *src, uint32_t lba, uint32_t cnt)
 {
 	return s_card ? sdmmc_write_sectors(s_card, src, lba, cnt) : -1;
 }
+
+esp_err_t sdcard_last_err(void) { return s_last_err; }
